@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    container_name: llm-workshop-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - BOCHA_API_KEY=${BOCHA_API_KEY}
+      - LLM_DEFAULT_MODEL=${LLM_DEFAULT_MODEL:-qwen-plus}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-v3}
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: llm-workshop-web
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

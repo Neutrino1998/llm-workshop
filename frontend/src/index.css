@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+body { font-family: 'Noto Sans SC', sans-serif; }
+pre, code, .font-mono { font-family: 'JetBrains Mono', monospace !important; }
