@@ -84,10 +84,12 @@ llm-workshop/
 │   ├── nginx.conf                   # 生产环境 Nginx 配置（反向代理 + SPA）
 │   └── Dockerfile                   # 前端容器构建（Node 构建 + Nginx 运行）
 │
+├── docs/
+│   └── training-script.md           # 培训讲稿（~50分钟，含演示操作指引）
+│
 ├── docker-compose.yml               # 容器编排，定义 backend + frontend 服务
 ├── .env.example                     # 环境变量模板
-├── README.md                        # 本文件
-└── CLAUDE.md                        # Claude Code 开发指南
+└── README.md                        # 本文件
 ```
 
 ## 文件说明
@@ -123,6 +125,10 @@ BOCHA_API_KEY=xxx           # 博查 AI 搜索 API Key
 LLM_DEFAULT_MODEL=qwen-plus        # 默认 LLM 模型
 EMBEDDING_MODEL=text-embedding-v3  # 默认 Embedding 模型
 ```
+
+## 培训资料
+
+`docs/training-script.md` 包含完整的培训讲稿（约 50 分钟），以 Context Engineering 为统一视角，配合每个 Stage 的演示操作。
 
 ## 已知限制
 
