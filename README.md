@@ -45,9 +45,7 @@ docker compose up -d
 | **03 多轮对话** | 逐轮发消息，看 messages 数组增长 | 模型没有记忆，是我们手动传历史 |
 | **04 工具调用** | 问需要搜索的问题，看到博查 API 被调用 | 模型不执行工具，只决定调什么 |
 | **05 RAG** | 上传文档/抓取 URL → 切分 → 向量化 → 检索 → 生成 | 每一步数据可视化 |
-| **06 Agentic RAG** | Agent 规划 → 搜索/检索 → 评估 → 生成 | Agent = 推理 + 决策 + 工具的编排 |
-
-> 注：Stage 6 为简化版 Agentic 流程演示，展示 Agent 的基本编排模式，非完整的 ReAct 循环实现。
+| **06 Agentic RAG** | ReAct 循环：思考 → 行动 → 观察 → 循环直到足够 | Agent 自主决策，而非固定流水线 |
 
 ## 技术栈
 
@@ -130,4 +128,4 @@ EMBEDDING_MODEL=text-embedding-v3  # 默认 Embedding 模型
 
 - RAG 使用内存存储，服务重启后索引数据丢失（培训演示场景可接受）
 - 网页抓取为简易实现，部分 JS 渲染页面可能抓取不完整
-- Stage 6 Agentic RAG 为固定流程演示，非真正的 Agent 循环决策
+- Stage 6 Agent 最多循环 3 轮，防止 token 消耗过大

@@ -370,76 +370,171 @@ async def stage5_generate(req: RAGGenerateRequest):
 
 
 # ================================================================
-# Stage 6: Agentic RAG
+# Stage 6: Agentic RAG (ReAct 循环)
 # ================================================================
+
+AGENT_TOOLS = [
+    {"name": "web_search", "description": "搜索互联网获取实时信息，适合查询新闻、最新动态、公开知识"},
+    {"name": "knowledge_base", "description": "检索本地知识库（需先在 Stage 5 索引文档），适合查询已上传的私有文档"},
+]
+
 
 @app.post("/api/stage6/run", tags=["Stage 6"])
 async def stage6_agent_run(req: AgentRequest):
     """
-    Agentic RAG: Agent 自主推理循环
-    返回 SSE 流，前端逐步展示 Agent 轨迹
+    Agentic RAG: ReAct 循环 (Reason → Act → Observe)
+    Agent 自主决定调用什么工具、判断信息是否充分、决定是否继续检索
     """
 
     async def event_stream():
-        # Step 1: 规划
-        plan_prompt = f"""你是一个智能助手。用户提出了以下需求：
+        max_iterations = 3  # 最大循环次数，防止无限循环
+        collected_info = []  # 收集的所有信息
+        used_queries = set()  # 已使用的搜索词，避免重复
+        iteration = 0
 
-「{req.query}」
+        # 检查知识库是否有内容
+        has_knowledge_base = req.doc_id in rag.store and len(rag.store[req.doc_id]) > 0
+        available_tools = "web_search（网络搜索）"
+        if has_knowledge_base:
+            available_tools += "、knowledge_base（知识库检索）"
 
-请分析这个需求，简洁地输出你的执行计划（3-5步）。每步说明要做什么、用什么方法。"""
+        yield _sse({
+            "type": "system",
+            "label": "Agent 初始化",
+            "content": f"可用工具: {available_tools}\n最大推理轮次: {max_iterations}"
+        })
 
-        plan = await llm.chat([{"role": "user", "content": plan_prompt}], model=req.model)
-        yield _sse({"type": "think", "label": "Agent 推理与规划", "content": plan["content"]})
+        while iteration < max_iterations:
+            iteration += 1
 
-        # Step 2: 判断是否需要搜索
-        if req.enable_search:
-            search_prompt = f"""基于用户需求「{req.query}」，生成一个最佳搜索查询关键词（只输出关键词，不要其他内容）。"""
-            search_q = await llm.chat([{"role": "user", "content": search_prompt}], model=req.model)
-            query_text = search_q["content"].strip().strip('"').strip("'")
+            # ===== Step 1: Reason - 思考下一步 =====
+            context_summary = ""
+            if collected_info:
+                context_summary = "\n\n【已收集的信息】\n" + "\n---\n".join(collected_info[-3:])  # 只保留最近3条
 
-            yield _sse({"type": "think", "label": "Agent 决策: 需要搜索", "content": f"生成搜索查询: {query_text}"})
+            reason_prompt = f"""你是一个智能助手，正在通过 ReAct 方式回答用户问题。
 
-            # 执行搜索
-            search_result = await web.search(query_text)
-            yield _sse({"type": "tool", "label": f"调用工具: web_search(\"{query_text}\")", "content": search_result[:3000]})
+【用户问题】
+{req.query}
+
+【可用工具】
+1. web_search: 搜索互联网，参数 query（搜索关键词）
+2. knowledge_base: 检索知识库，参数 query（检索关键词）{"（当前知识库为空，不建议使用）" if not has_knowledge_base else ""}
+
+【已使用的搜索词】
+{list(used_queries) if used_queries else "无"}
+{context_summary}
+
+请分析当前情况，决定下一步行动。你必须用以下 JSON 格式回复：
+{{"thought": "你的思考过程", "action": "工具名称或 finish", "action_input": "工具参数或最终答案"}}
+
+- 如果信息足够回答问题，action 填 "finish"，action_input 填最终答案
+- 如果需要更多信息，action 填工具名，action_input 填查询参数
+- 避免重复使用相同的搜索词"""
+
+            reason_result = await llm.chat([{"role": "user", "content": reason_prompt}], model=req.model)
+            reason_text = reason_result["content"]
+
+            # 解析 Agent 决策
+            decision = _parse_agent_decision(reason_text)
+
+            yield _sse({
+                "type": "think",
+                "label": f"[轮次 {iteration}] Agent 思考",
+                "content": f"思考: {decision['thought']}\n\n决策: {decision['action']}({decision['action_input'][:100] if decision['action'] != 'finish' else '...'})"
+            })
+
+            # ===== Step 2: Act - 执行动作 =====
+            if decision["action"] == "finish":
+                # Agent 决定结束，输出最终答案
+                yield _sse({
+                    "type": "result",
+                    "label": f"Agent 完成 (共 {iteration} 轮)",
+                    "content": decision["action_input"]
+                })
+                break
+
+            elif decision["action"] == "web_search":
+                query = decision["action_input"]
+                if query in used_queries:
+                    yield _sse({"type": "think", "label": "Agent 注意到", "content": f"搜索词「{query}」已使用过，尝试换一个角度..."})
+                    continue
+
+                used_queries.add(query)
+                yield _sse({"type": "tool", "label": f"调用 web_search", "content": f"搜索关键词: {query}"})
+
+                search_result = await web.search(query)
+                collected_info.append(f"[web_search: {query}]\n{search_result[:1500]}")
+
+                yield _sse({
+                    "type": "observe",
+                    "label": "观察搜索结果",
+                    "content": search_result[:2000] + ("..." if len(search_result) > 2000 else "")
+                })
+
+            elif decision["action"] == "knowledge_base":
+                query = decision["action_input"]
+                yield _sse({"type": "tool", "label": f"调用 knowledge_base", "content": f"检索关键词: {query}"})
+
+                rag_results = await rag.search(query, top_k=3, doc_id=req.doc_id)
+                if rag_results:
+                    rag_text = "\n\n".join([f"[相似度 {r['score']:.2f}] {r['text']}" for r in rag_results])
+                    collected_info.append(f"[knowledge_base: {query}]\n{rag_text[:1500]}")
+                    yield _sse({"type": "observe", "label": "观察知识库结果", "content": rag_text})
+                else:
+                    yield _sse({"type": "observe", "label": "观察知识库结果", "content": "未找到相关内容"})
+
+            else:
+                yield _sse({"type": "think", "label": "未知动作", "content": f"Agent 返回了未知动作: {decision['action']}，尝试继续..."})
+
         else:
-            search_result = ""
+            # 达到最大轮次，强制生成答案
+            yield _sse({"type": "think", "label": "达到最大轮次", "content": "Agent 已达到最大推理轮次，基于已有信息生成答案..."})
 
-        # Step 3: 检查 RAG 知识库
-        rag_results = await rag.search(req.query, top_k=3, doc_id=req.doc_id)
-        if rag_results:
-            rag_text = "\n".join([f"- [score={r['score']:.2f}] {r['text'][:150]}..." for r in rag_results])
-            yield _sse({"type": "tool", "label": "调用工具: 知识库检索", "content": f"找到 {len(rag_results)} 条结果:\n{rag_text}"})
+            final_context = "\n---\n".join(collected_info) if collected_info else "无"
+            final_prompt = f"""基于以下收集到的信息，回答用户问题。如果信息不足，请如实说明。
 
-        # Step 4: 评估
-        all_context = ""
-        if search_result:
-            all_context += f"【搜索结果】\n{search_result[:2000]}\n\n"
-        if rag_results:
-            all_context += f"【知识库结果】\n{chr(10).join(r['text'] for r in rag_results)}\n\n"
+【已收集的信息】
+{final_context}
 
-        eval_prompt = f"""评估以下信息是否足够回答用户问题「{req.query}」。简洁说明信息质量和充分性。
+【用户问题】
+{req.query}"""
 
-{all_context if all_context else '无检索结果'}"""
-
-        eval_r = await llm.chat([{"role": "user", "content": eval_prompt}], model=req.model)
-        yield _sse({"type": "think", "label": "Agent 评估信息充分性", "content": eval_r["content"]})
-
-        # Step 5: 生成报告
-        final_prompt = f"""基于以下信息，回答用户需求。
-
-{all_context}
-
-【用户需求】{req.query}
-
-请给出完整、结构化的回答。"""
-
-        final = await llm.chat([{"role": "user", "content": final_prompt}], model=req.model)
-        yield _sse({"type": "result", "label": "生成最终回答", "content": final["content"]})
+            final = await llm.chat([{"role": "user", "content": final_prompt}], model=req.model)
+            yield _sse({"type": "result", "label": f"Agent 完成 (达到上限)", "content": final["content"]})
 
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _parse_agent_decision(text: str) -> dict:
+    """解析 Agent 的 JSON 决策，带容错处理"""
+    import re
+    default = {"thought": text, "action": "finish", "action_input": text}
+
+    # 尝试提取 JSON
+    json_match = re.search(r'\{[^{}]*"thought"[^{}]*\}', text, re.DOTALL)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group())
+            return {
+                "thought": parsed.get("thought", ""),
+                "action": parsed.get("action", "finish"),
+                "action_input": parsed.get("action_input", ""),
+            }
+        except json.JSONDecodeError:
+            pass
+
+    # 容错：尝试从文本中提取
+    if "web_search" in text.lower():
+        query_match = re.search(r'["\']([^"\']+)["\']', text)
+        return {"thought": text[:200], "action": "web_search", "action_input": query_match.group(1) if query_match else ""}
+    if "knowledge_base" in text.lower():
+        query_match = re.search(r'["\']([^"\']+)["\']', text)
+        return {"thought": text[:200], "action": "knowledge_base", "action_input": query_match.group(1) if query_match else ""}
+
+    return default
 
 
 def _sse(data: dict) -> str:

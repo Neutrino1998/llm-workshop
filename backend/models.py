@@ -68,5 +68,4 @@ class RAGGenerateRequest(BaseModel):
 class AgentRequest(BaseModel):
     query: str
     doc_id: str = "default"
-    enable_search: bool = True
     model: Optional[str] = None

@@ -526,31 +526,30 @@ function Stage5() {
 // =====================================================
 
 function Stage6() {
-  const [query, setQuery] = useState('搜索最新的 AI Agent 框架，对比它们的优劣势')
-  const [enableSearch, setEnableSearch] = useState(true)
+  const [query, setQuery] = useState('OpenAI 最新发布了什么模型？和之前的模型相比有什么改进？')
   const [steps, setSteps] = useState([])
   const [running, setRunning] = useState(false)
 
   const run = () => {
     setSteps([]); setRunning(true)
     api.stage6Run(
-      query, 'demo', enableSearch, null,
+      query, 'demo', true, null,
       (step) => setSteps(prev => [...prev, step]),
       () => setRunning(false),
     )
   }
 
-  const typeColors = { think: '#3b82f6', tool: '#f59e0b', result: '#10b981' }
-  const typeIcons = { think: '🧠', tool: '🔧', result: '📊' }
+  const typeColors = { system: '#6b7280', think: '#3b82f6', tool: '#f59e0b', observe: '#8b5cf6', result: '#10b981' }
+  const typeIcons = { system: '⚙️', think: '🧠', tool: '🔧', observe: '👁️', result: '✅' }
 
   return (
     <div className="space-y-5">
       <Insight color="#ef4444">
-        <b className="text-red-400">普通 RAG</b> 是固定流水线（检索→生成）。<b className="text-red-400">Agentic RAG</b> 是自主决策循环——Agent 判断要不要检索、用什么工具、结果够不够、要不要换个方式再试。
+        <b className="text-red-400">普通 RAG</b> 是固定流水线。<b className="text-red-400">Agentic RAG</b> 是 <b className="text-amber-400">ReAct 循环</b>：Agent 思考(Reason) → 选择工具行动(Act) → 观察结果(Observe) → 判断是否足够 → 不够就继续循环。
       </Insight>
       <div className="grid grid-cols-2 gap-3">
         <div className="p-3 rounded-lg border border-gray-800 bg-[#0d1117]">
-          <p className="text-[10px] text-gray-500 mb-1.5 font-medium">普通 RAG</p>
+          <p className="text-[10px] text-gray-500 mb-1.5 font-medium">普通 RAG（固定流水线）</p>
           <div className="flex items-center gap-1 text-[10px]">
             {['问题', '检索', '生成'].map((s, i) => (
               <span key={i} className="flex items-center gap-1">
@@ -561,32 +560,30 @@ function Stage6() {
           </div>
         </div>
         <div className="p-3 rounded-lg border border-red-900/40 bg-red-950/10">
-          <p className="text-[10px] text-red-400 mb-1.5 font-medium">Agentic RAG</p>
+          <p className="text-[10px] text-red-400 mb-1.5 font-medium">Agentic RAG（ReAct 循环）</p>
           <div className="flex items-center gap-1 text-[10px] flex-wrap gap-y-1">
-            {['推理', '工具', '评估', '循环...'].map((s, i) => (
-              <span key={i} className="flex items-center gap-1">
-                {i > 0 && <span className="text-gray-700">→</span>}
-                <span className={`px-1.5 py-0.5 rounded ${i === 3 ? 'bg-gray-800 text-gray-500' : i === 1 ? 'bg-amber-900/30 text-amber-400' : 'bg-blue-900/30 text-blue-400'}`}>{s}</span>
-              </span>
-            ))}
+            <span className="px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400">思考</span>
+            <span className="text-gray-700">→</span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">行动</span>
+            <span className="text-gray-700">→</span>
+            <span className="px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">观察</span>
+            <span className="text-gray-700">→</span>
+            <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">循环?</span>
           </div>
         </div>
       </div>
-      <TextArea value={query} onChange={setQuery} placeholder="输入 Agent 任务..." rows={2} />
+      <TextArea value={query} onChange={setQuery} placeholder="输入需要 Agent 解答的问题..." rows={2} />
       <div className="flex items-center gap-3">
-        <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-          <input type="checkbox" checked={enableSearch} onChange={e => setEnableSearch(e.target.checked)} className="rounded border-gray-700" />
-          启用博查搜索
-        </label>
         <Btn onClick={run} loading={running}>运行 Agent</Btn>
+        <span className="text-[10px] text-gray-600">Agent 会自主决定使用什么工具、搜索几次</span>
       </div>
       {steps.length > 0 && (
         <div className="border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-2 bg-gray-900/50 border-b border-gray-800 flex items-center justify-between">
-            <span className="text-xs text-gray-400 font-medium">🤖 Agent 执行轨迹</span>
+            <span className="text-xs text-gray-400 font-medium">🤖 Agent 执行轨迹 (ReAct)</span>
             <span className="text-[10px] font-mono text-gray-600">{steps.length} 步 {running ? '⏳' : '✅'}</span>
           </div>
-          <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+          <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto">
             {steps.map((s, i) => (
               <div key={i} className="p-3 rounded-lg border animate-[fadeIn_0.3s_ease-out]"
                 style={{ borderColor: (typeColors[s.type] || '#666') + '44', backgroundColor: (typeColors[s.type] || '#666') + '08' }}>

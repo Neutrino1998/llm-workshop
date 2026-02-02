@@ -65,9 +65,10 @@ export async function stage5Upload(file) {
   return r.json()
 }
 
-// Stage 6 (SSE)
+// Stage 6 (SSE) - ReAct Agent
 export function stage6Run(query, doc_id, enable_search, model, onStep, onDone) {
-  const body = JSON.stringify({ query, doc_id, enable_search, model })
+  // enable_search 参数保留兼容性但不再使用，Agent 自主决策
+  const body = JSON.stringify({ query, doc_id, model })
   fetch(BASE + '/api/stage6/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
