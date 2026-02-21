@@ -104,8 +104,8 @@ export function stage4Chat(input, model, callbacks) {
 // Stage 5
 // ============================================================
 
-export const stage5FetchURL = (url, max_length) =>
-  post('/api/stage5/fetch_url', { url, max_length })
+export const stage5FetchURL = (url) =>
+  post('/api/stage5/fetch_url', { url })
 
 export const stage5Chunk = (content, chunk_size, chunk_overlap) =>
   post('/api/stage5/chunk', { content, chunk_size, chunk_overlap })

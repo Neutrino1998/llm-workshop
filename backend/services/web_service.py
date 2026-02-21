@@ -75,7 +75,7 @@ class WebService:
 
         return "\n\n".join(parts)
 
-    async def fetch(self, url: str, max_length: int = 10000) -> str:
+    async def fetch(self, url: str, max_length: int = 80000) -> str:
         """
         网页抓取：优先使用 Jina Reader（返回 Markdown），无 key 时回退到简易爬虫。
         """
@@ -83,7 +83,7 @@ class WebService:
             return await self._fetch_jina(url, max_length)
         return await self._fetch_simple(url, max_length)
 
-    async def _fetch_jina(self, url: str, max_length: int = 10000) -> str:
+    async def _fetch_jina(self, url: str, max_length: int = 80000) -> str:
         """通过 Jina Reader API 抓取，直接返回 Markdown 格式文本。"""
         headers = {
             "Authorization": f"Bearer {JINA_API_KEY}",
@@ -106,7 +106,7 @@ class WebService:
         except Exception:
             return await self._fetch_simple(url, max_length)
 
-    async def _fetch_simple(self, url: str, max_length: int = 10000) -> str:
+    async def _fetch_simple(self, url: str, max_length: int = 80000) -> str:
         """简易网页抓取（纯文本提取），作为降级方案。"""
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",

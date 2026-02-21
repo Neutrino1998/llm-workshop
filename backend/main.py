@@ -304,9 +304,8 @@ async def stage5_fetch_url(req: FetchURLRequest):
     content = await web.fetch(req.url)
     return {
         "url": req.url,
-        "content": content[:req.max_length],
+        "content": content,
         "char_count": len(content),
-        "truncated": len(content) > req.max_length,
     }
 
 

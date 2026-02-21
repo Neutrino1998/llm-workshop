@@ -28,7 +28,6 @@ class MultiTurnRequest(BaseModel):
 
 class FetchURLRequest(BaseModel):
     url: str
-    max_length: int = 10000
 
 
 class ChunkRequest(BaseModel):
