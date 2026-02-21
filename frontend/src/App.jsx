@@ -120,12 +120,14 @@ function Stage1() {
   const [streamContent, setStreamContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [usage, setUsage] = useState(null)
 
   const run = () => {
-    setLoading(true); setSteps([]); setStreamContent(''); setError(null)
+    setLoading(true); setSteps([]); setStreamContent(''); setError(null); setUsage(null)
     api.stage1Chat(input, null, {
       onStep: (step) => setSteps(prev => [...prev, step]),
       onToken: (t) => setStreamContent(prev => prev + t),
+      onUsage: (u) => setUsage(u),
       onDone: () => setLoading(false),
       onError: (e) => { setError(e.message); setLoading(false) },
     })
@@ -145,6 +147,24 @@ function Stage1() {
         </div>
       )}
       <AnswerCard content={streamContent} loading={loading && steps.length > 0} />
+      {usage && (
+        <Card title="Token 消耗 (usage)" badge="计费依据" color="#6b7280">
+          <div className="flex gap-4 text-xs">
+            <div className="flex-1 p-2 rounded-lg bg-gray-950 border border-gray-800 text-center">
+              <p className="text-gray-500 mb-1">输入 tokens</p>
+              <p className="text-lg font-mono text-amber-400">{usage.prompt_tokens}</p>
+            </div>
+            <div className="flex-1 p-2 rounded-lg bg-gray-950 border border-gray-800 text-center">
+              <p className="text-gray-500 mb-1">输出 tokens</p>
+              <p className="text-lg font-mono text-emerald-400">{usage.completion_tokens}</p>
+            </div>
+            <div className="flex-1 p-2 rounded-lg bg-gray-950 border border-gray-800 text-center">
+              <p className="text-gray-500 mb-1">总计</p>
+              <p className="text-lg font-mono text-gray-200">{usage.total_tokens}</p>
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
