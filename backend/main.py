@@ -178,6 +178,9 @@ TOOL_DEFS = [
     },
 ]
 
+# 每个工具的主参数 key，用于 JSON 解析失败时回退
+TOOL_DEFS_PARAM_KEYS = {t["function"]["name"]: t["function"]["parameters"]["required"][0] for t in TOOL_DEFS}
+
 
 async def execute_tool(name: str, args: dict) -> str:
     """实际执行工具"""
@@ -223,7 +226,10 @@ async def stage4_chat(req: ChatRequest):
         try:
             func_args = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, TypeError):
-            func_args = {"query": tc["function"]["arguments"]}
+            raw = str(tc["function"].get("arguments", ""))
+            # 按工具的第一个 required 参数回退
+            param_key = TOOL_DEFS_PARAM_KEYS.get(func_name, "query")
+            func_args = {param_key: raw}
 
         # Step 2: 模型决策
         steps.append({
@@ -302,11 +308,14 @@ async def stage5_fetch_url(req: FetchURLRequest):
 @app.post("/api/stage5/chunk", tags=["Stage 5"])
 async def stage5_chunk(req: ChunkRequest):
     """Step 1: 文档切分，返回所有 chunk 及其元信息"""
-    chunks = rag.chunk_text(req.content, req.chunk_size, req.chunk_overlap)
+    # clamp 参数并返回实际生效值
+    actual_size = max(req.chunk_size, 50)
+    actual_overlap = max(0, min(req.chunk_overlap, actual_size - 1))
+    chunks = rag.chunk_text(req.content, actual_size, actual_overlap)
     return {
         "total_chunks": len(chunks),
-        "chunk_size": req.chunk_size,
-        "chunk_overlap": req.chunk_overlap,
+        "chunk_size": actual_size,
+        "chunk_overlap": actual_overlap,
         "chunks": [
             {"id": i, "text": c, "char_count": len(c), "token_estimate": len(c) // 2}
             for i, c in enumerate(chunks)
