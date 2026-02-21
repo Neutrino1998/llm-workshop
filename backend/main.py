@@ -7,6 +7,7 @@ LLM 系统工程培训 - 后端服务
 import os
 import json
 import time
+from datetime import datetime
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -59,22 +60,21 @@ app.add_middleware(
 
 @app.post("/api/stage1/chat", tags=["Stage 1"])
 async def stage1_chat(req: ChatRequest):
-    """基础调用: user_input → messages → API → response"""
+    """基础调用: user_input → messages → API → SSE 流式响应"""
     messages = [{"role": "user", "content": req.user_input}]
     request_body = {"model": req.model or llm.default_model, "messages": messages}
 
-    result = await llm.chat(messages, model=req.model)
+    async def stream():
+        yield _sse({"type": "step", "step": {"id": "input", "label": "用户输入", "data": req.user_input}})
+        yield _sse({"type": "step", "step": {"id": "request", "label": "API 请求体", "data": request_body}})
+        async for content, usage in llm.chat_stream(messages, model=req.model):
+            if content:
+                yield _sse({"type": "token", "content": content})
+            if usage:
+                yield _sse({"type": "usage", "usage": usage})
+        yield "data: [DONE]\n\n"
 
-    return {
-        "steps": [
-            {"id": "input", "label": "用户输入", "data": req.user_input},
-            {"id": "request", "label": "API 请求体", "data": request_body},
-            {"id": "response", "label": "API 响应", "data": {
-                "content": result["content"],
-                "usage": result["usage"],
-            }},
-        ]
-    }
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ================================================================
@@ -96,26 +96,26 @@ async def stage2_presets():
 
 @app.post("/api/stage2/chat", tags=["Stage 2"])
 async def stage2_chat(req: SystemPromptRequest):
-    """带 System Prompt 的调用，展示不同预设如何改变回答风格"""
+    """带 System Prompt 的调用，SSE 流式展示"""
     sp = PRESETS.get(req.preset, {}).get("prompt", req.custom_prompt or PRESETS["default"]["prompt"])
     messages = [
         {"role": "system", "content": sp},
         {"role": "user", "content": req.user_input},
     ]
     request_body = {"model": req.model or llm.default_model, "messages": messages}
-    result = await llm.chat(messages, model=req.model)
 
-    return {
-        "steps": [
-            {"id": "system_prompt", "label": "System Prompt", "data": sp},
-            {"id": "user_input", "label": "用户输入", "data": req.user_input},
-            {"id": "messages", "label": "组装后的 Messages", "data": request_body},
-            {"id": "response", "label": "模型响应", "data": {
-                "content": result["content"],
-                "usage": result["usage"],
-            }},
-        ]
-    }
+    async def stream():
+        yield _sse({"type": "step", "step": {"id": "system_prompt", "label": "System Prompt", "data": sp}})
+        yield _sse({"type": "step", "step": {"id": "user_input", "label": "用户输入", "data": req.user_input}})
+        yield _sse({"type": "step", "step": {"id": "messages", "label": "组装后的 Messages", "data": request_body}})
+        async for content, usage in llm.chat_stream(messages, model=req.model):
+            if content:
+                yield _sse({"type": "token", "content": content})
+            if usage:
+                yield _sse({"type": "usage", "usage": usage})
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ================================================================
@@ -124,7 +124,7 @@ async def stage2_chat(req: SystemPromptRequest):
 
 @app.post("/api/stage3/chat", tags=["Stage 3"])
 async def stage3_chat(req: MultiTurnRequest):
-    """多轮对话: 展示完整 messages 数组和 token 增长"""
+    """多轮对话: SSE 流式输出"""
     messages = []
     if req.system_prompt:
         messages.append({"role": "system", "content": req.system_prompt})
@@ -132,15 +132,20 @@ async def stage3_chat(req: MultiTurnRequest):
         messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": req.user_input})
 
-    request_body = {"model": req.model or llm.default_model, "messages": messages}
-    result = await llm.chat(messages, model=req.model)
+    async def stream():
+        yield _sse({"type": "step", "step": {
+            "id": "messages",
+            "label": "发送的 Messages",
+            "data": {"messages": messages, "message_count": len(messages)},
+        }})
+        async for content, usage in llm.chat_stream(messages, model=req.model):
+            if content:
+                yield _sse({"type": "token", "content": content})
+            if usage:
+                yield _sse({"type": "usage", "usage": usage})
+        yield "data: [DONE]\n\n"
 
-    return {
-        "messages_sent": messages,
-        "message_count": len(messages),
-        "response": result["content"],
-        "usage": result["usage"],
-    }
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ================================================================
@@ -165,14 +170,14 @@ TOOL_DEFS = [
     {
         "type": "function",
         "function": {
-            "name": "get_weather",
-            "description": "获取指定城市的天气信息",
+            "name": "fetch_url",
+            "description": "抓取指定网页的内容，返回 Markdown 格式的正文文本",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {"type": "string", "description": "城市名"}
+                    "url": {"type": "string", "description": "要抓取的网页 URL"}
                 },
-                "required": ["city"],
+                "required": ["url"],
             },
         },
     },
@@ -185,101 +190,101 @@ TOOL_DEFS_PARAM_KEYS = {t["function"]["name"]: t["function"]["parameters"]["requ
 async def execute_tool(name: str, args: dict) -> str:
     """实际执行工具"""
     if name == "web_search":
-        result = await web.search(args.get("query", ""))
-        return result
-    elif name == "get_weather":
-        # 使用博查搜索天气
-        result = await web.search(f"{args.get('city', '')} 今天天气")
-        return result
+        return await web.search(args.get("query", ""))
+    if name == "fetch_url":
+        return await web.fetch(args.get("url", ""))
     return f"未知工具: {name}"
 
 
 @app.post("/api/stage4/chat", tags=["Stage 4"])
 async def stage4_chat(req: ChatRequest):
     """
-    工具调用完整流程，返回每一步:
-    1. 首次调用(含工具定义)
-    2. 模型决策(tool_calls)
-    3. 工具执行(真实结果)
-    4. 二次调用(最终回答)
+    工具调用完整流程 (SSE 混合模式):
+    - 第一次 LLM 调用不流式（需完整响应判断 tool_calls）
+    - 第二次 LLM 调用流式（最终回答逐 token 推送）
     """
-    steps = []
-    messages = [{"role": "user", "content": req.user_input}]
+    messages = [
+        {"role": "system", "content": f"今天的日期是 {datetime.now().strftime('%Y-%m-%d')}。"},
+        {"role": "user", "content": req.user_input},
+    ]
 
-    # Step 1: 首次调用
-    steps.append({
-        "id": "first_call",
-        "type": "request",
-        "label": "① 首次调用（含工具定义）",
-        "data": {
-            "model": req.model or llm.default_model,
-            "messages": messages,
-            "tools": TOOL_DEFS,
-        },
-    })
-
-    result = await llm.chat(messages, model=req.model, tools=TOOL_DEFS)
-
-    if result.get("tool_calls"):
-        tc = result["tool_calls"][0]
-        func_name = tc["function"]["name"]
-        try:
-            func_args = json.loads(tc["function"]["arguments"])
-        except (json.JSONDecodeError, TypeError):
-            raw = str(tc["function"].get("arguments", ""))
-            # 按工具的第一个 required 参数回退
-            param_key = TOOL_DEFS_PARAM_KEYS.get(func_name, "query")
-            func_args = {param_key: raw}
-
-        # Step 2: 模型决策
-        steps.append({
-            "id": "model_decision",
-            "type": "decision",
-            "label": f"② 模型决策 → 调用 {func_name}()",
+    async def stream():
+        # Step 1: 首次调用
+        yield _sse({"type": "step", "step": {
+            "id": "first_call",
+            "type": "request",
+            "label": "① 首次调用（含工具定义）",
             "data": {
-                "tool_calls": result["tool_calls"],
-                "explanation": f"模型分析后决定调用 {func_name}，参数: {json.dumps(func_args, ensure_ascii=False)}",
+                "model": req.model or llm.default_model,
+                "messages": messages,
+                "tools": TOOL_DEFS,
             },
-        })
+        }})
 
-        # Step 3: 执行工具
-        tool_result = await execute_tool(func_name, func_args)
-        steps.append({
-            "id": "tool_exec",
-            "type": "tool",
-            "label": f"③ 执行工具: {func_name}()",
-            "data": {
-                "function": func_name,
-                "arguments": func_args,
-                "result": tool_result[:2000],  # 截断过长结果
-            },
-        })
+        result = await llm.chat(messages, model=req.model, tools=TOOL_DEFS)
 
-        # Step 4: 二次调用
-        messages_r2 = messages + [
-            {"role": "assistant", "content": None, "tool_calls": result["tool_calls"]},
-            {"role": "tool", "tool_call_id": tc["id"], "content": tool_result[:2000]},
-        ]
-        final = await llm.chat(messages_r2, model=req.model)
-        steps.append({
-            "id": "final_answer",
-            "type": "response",
-            "label": "④ 基于工具结果生成最终回答",
-            "data": {
-                "messages_count": len(messages_r2),
-                "content": final["content"],
-                "usage": final["usage"],
-            },
-        })
-    else:
-        steps.append({
-            "id": "direct_answer",
-            "type": "response",
-            "label": "② 模型直接回答（未调用工具）",
-            "data": {"content": result["content"], "usage": result["usage"]},
-        })
+        if result.get("tool_calls"):
+            tc = result["tool_calls"][0]
+            func_name = tc["function"]["name"]
+            try:
+                func_args = json.loads(tc["function"]["arguments"])
+            except (json.JSONDecodeError, TypeError):
+                raw = str(tc["function"].get("arguments", ""))
+                param_key = TOOL_DEFS_PARAM_KEYS.get(func_name, "query")
+                func_args = {param_key: raw}
 
-    return {"steps": steps}
+            # Step 2: 模型决策
+            yield _sse({"type": "step", "step": {
+                "id": "model_decision",
+                "type": "decision",
+                "label": f"② 模型决策 → 调用 {func_name}()",
+                "data": {
+                    "tool_calls": result["tool_calls"],
+                    "explanation": f"模型分析后决定调用 {func_name}，参数: {json.dumps(func_args, ensure_ascii=False)}",
+                },
+            }})
+
+            # Step 3: 执行工具
+            tool_result = await execute_tool(func_name, func_args)
+            yield _sse({"type": "step", "step": {
+                "id": "tool_exec",
+                "type": "tool",
+                "label": f"③ 执行工具: {func_name}()",
+                "data": {
+                    "function": func_name,
+                    "arguments": func_args,
+                    "result": tool_result[:2000],
+                },
+            }})
+
+            # Step 4: 二次调用（流式）
+            messages_r2 = messages + [
+                {"role": "assistant", "content": None, "tool_calls": result["tool_calls"]},
+                {"role": "tool", "tool_call_id": tc["id"], "content": tool_result[:2000]},
+            ]
+            yield _sse({"type": "step", "step": {
+                "id": "final_call",
+                "type": "response",
+                "label": "④ 基于工具结果生成最终回答",
+                "data": {"messages_count": len(messages_r2)},
+            }})
+            async for content, usage in llm.chat_stream(messages_r2, model=req.model):
+                if content:
+                    yield _sse({"type": "token", "content": content})
+                if usage:
+                    yield _sse({"type": "usage", "usage": usage})
+        else:
+            # 模型直接回答（不流式，因为已拿到完整响应）
+            yield _sse({"type": "step", "step": {
+                "id": "direct_answer",
+                "type": "response",
+                "label": "② 模型直接回答（未调用工具）",
+                "data": {"content": result["content"], "usage": result["usage"]},
+            }})
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ================================================================
@@ -358,8 +363,7 @@ async def stage5_search(req: SearchRequest):
 
 @app.post("/api/stage5/generate", tags=["Stage 5"])
 async def stage5_generate(req: RAGGenerateRequest):
-    """RAG 最终生成: 组装 prompt + 调用 LLM"""
-    # 组装 prompt
+    """RAG 最终生成: 组装 prompt + SSE 流式调用 LLM"""
     ctx_parts = [f"[{i + 1}] {r.text}" for i, r in enumerate(req.search_results)]
     ctx_str = "\n\n".join(ctx_parts)
 
@@ -372,13 +376,17 @@ async def stage5_generate(req: RAGGenerateRequest):
 {req.query}"""
 
     messages = [{"role": "user", "content": assembled}]
-    result = await llm.chat(messages, model=req.model)
 
-    return {
-        "assembled_prompt": assembled,
-        "answer": result["content"],
-        "usage": result["usage"],
-    }
+    async def stream():
+        yield _sse({"type": "step", "step": {"id": "prompt", "label": "组装后的 Prompt", "data": assembled}})
+        async for content, usage in llm.chat_stream(messages, model=req.model):
+            if content:
+                yield _sse({"type": "token", "content": content})
+            if usage:
+                yield _sse({"type": "usage", "usage": usage})
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 # ================================================================
@@ -399,7 +407,7 @@ async def stage6_agent_run(req: AgentRequest):
     """
 
     async def event_stream():
-        max_iterations = 3  # 最大循环次数，防止无限循环
+        max_iterations = 10  # 最大循环次数，防止无限循环
         collected_info = []  # 收集的所有信息
         used_queries = set()  # 已使用的搜索词，避免重复
         iteration = 0
@@ -425,6 +433,7 @@ async def stage6_agent_run(req: AgentRequest):
                 context_summary = "\n\n【已收集的信息】\n" + "\n---\n".join(collected_info[-3:])  # 只保留最近3条
 
             reason_prompt = f"""你是一个智能助手，正在通过 ReAct 方式回答用户问题。
+今天的日期是 {datetime.now().strftime('%Y-%m-%d')}。
 
 【用户问题】
 {req.query}

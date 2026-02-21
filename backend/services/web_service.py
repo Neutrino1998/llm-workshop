@@ -11,6 +11,7 @@ from typing import Optional
 
 BOCHA_API_KEY = os.getenv("BOCHA_API_KEY", "")
 BOCHA_API_URL = "https://api.bochaai.com/v1/web-search"
+JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 
 
 class WebService:
@@ -76,9 +77,37 @@ class WebService:
 
     async def fetch(self, url: str, max_length: int = 10000) -> str:
         """
-        简易网页抓取（纯文本提取）。
-        培训演示用途，不依赖 crawl4ai 重型浏览器。
+        网页抓取：优先使用 Jina Reader（返回 Markdown），无 key 时回退到简易爬虫。
         """
+        if JINA_API_KEY:
+            return await self._fetch_jina(url, max_length)
+        return await self._fetch_simple(url, max_length)
+
+    async def _fetch_jina(self, url: str, max_length: int = 10000) -> str:
+        """通过 Jina Reader API 抓取，直接返回 Markdown 格式文本。"""
+        headers = {
+            "Authorization": f"Bearer {JINA_API_KEY}",
+            "Accept": "text/plain",
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"https://r.jina.ai/{url}",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status != 200:
+                        # Jina 失败时回退到简易爬虫
+                        return await self._fetch_simple(url, max_length)
+                    text = await resp.text()
+                    if len(text) > max_length:
+                        text = text[:max_length] + "\n\n[内容已截断...]"
+                    return text
+        except Exception:
+            return await self._fetch_simple(url, max_length)
+
+    async def _fetch_simple(self, url: str, max_length: int = 10000) -> str:
+        """简易网页抓取（纯文本提取），作为降级方案。"""
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         }
@@ -88,13 +117,10 @@ class WebService:
                     if resp.status != 200:
                         return f"[抓取失败: HTTP {resp.status}]"
                     html = await resp.text()
-
-                    # 简易 HTML → 文本
                     text = self._html_to_text(html)
                     if len(text) > max_length:
                         text = text[:max_length] + "\n\n[内容已截断...]"
                     return text
-
         except Exception as e:
             return f"[抓取失败: {str(e)}]"
 

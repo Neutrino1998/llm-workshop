@@ -64,9 +64,13 @@ class LLMService:
         }
 
     async def chat_stream(self, messages: list[dict], model: Optional[str] = None):
-        """SSE 流式输出"""
+        """
+        SSE 流式输出，yield (content_delta, usage_or_none) 元组。
+        普通 chunk: ("文字", None)
+        最后一个 chunk: ("", {usage_dict}) 或 ("文字", {usage_dict})
+        """
         model = model or self.default_model
-        payload = {"model": model, "messages": messages, "stream": True}
+        payload = {"model": model, "messages": messages, "stream": True, "stream_options": {"include_usage": True}}
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         async with httpx.AsyncClient(timeout=120) as client:
@@ -78,8 +82,10 @@ class LLMService:
                             break
                         try:
                             chunk = json.loads(d)
-                            delta = chunk["choices"][0].get("delta", {})
-                            if delta.get("content"):
-                                yield delta["content"]
+                            usage = chunk.get("usage")
+                            delta = chunk["choices"][0].get("delta", {}) if chunk.get("choices") else {}
+                            content = delta.get("content", "")
+                            if content or usage:
+                                yield (content, usage)
                         except (json.JSONDecodeError, KeyError, IndexError):
                             continue

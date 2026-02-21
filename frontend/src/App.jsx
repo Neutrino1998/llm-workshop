@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import * as api from './api'
 
 // =====================================================
@@ -12,6 +14,14 @@ function Code({ children, maxH = 'max-h-60' }) {
         {typeof children === 'string' ? children : JSON.stringify(children, null, 2)}
       </code>
     </pre>
+  )
+}
+
+function Markdown({ children }) {
+  return (
+    <div className="prose prose-invert prose-sm max-w-none prose-p:my-2 prose-headings:my-3 prose-li:my-0.5 prose-pre:bg-gray-950 prose-pre:border prose-pre:border-gray-800 prose-code:text-amber-400 prose-a:text-blue-400">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children || ''}</ReactMarkdown>
+    </div>
   )
 }
 
@@ -86,6 +96,19 @@ function StepCard({ step, isLast }) {
   )
 }
 
+/** 模型回答卡片：流式 markdown 渲染 */
+function AnswerCard({ content, loading }) {
+  if (!content && !loading) return null
+  return (
+    <Card title="模型回答" color="#10b981">
+      <div className="p-3 rounded-lg bg-gray-950 border border-emerald-900/30 text-sm text-gray-300 leading-relaxed">
+        {content ? <Markdown>{content}</Markdown> : null}
+        {loading && <span className="inline-block w-1.5 h-4 ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-middle" />}
+      </div>
+    </Card>
+  )
+}
+
 
 // =====================================================
 // Stage 1: 基础 LLM 调用
@@ -93,13 +116,19 @@ function StepCard({ step, isLast }) {
 
 function Stage1() {
   const [input, setInput] = useState('什么是机器学习？')
-  const [result, setResult] = useState(null)
+  const [steps, setSteps] = useState([])
+  const [streamContent, setStreamContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  const run = async () => {
-    setLoading(true); setResult(null)
-    try { setResult(await api.stage1Chat(input)) } catch (e) { setResult({ error: e.message }) }
-    setLoading(false)
+  const run = () => {
+    setLoading(true); setSteps([]); setStreamContent(''); setError(null)
+    api.stage1Chat(input, null, {
+      onStep: (step) => setSteps(prev => [...prev, step]),
+      onToken: (t) => setStreamContent(prev => prev + t),
+      onDone: () => setLoading(false),
+      onError: (e) => { setError(e.message); setLoading(false) },
+    })
   }
 
   return (
@@ -109,12 +138,13 @@ function Stage1() {
         <Input value={input} onChange={setInput} placeholder="输入你的问题..." onKeyDown={e => e.key === 'Enter' && run()} />
         <Btn onClick={run} loading={loading}>发送</Btn>
       </div>
-      {result?.error && <div className="text-xs text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-900/50">{result.error}</div>}
-      {result?.steps && (
+      {error && <div className="text-xs text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-900/50">{error}</div>}
+      {steps.length > 0 && (
         <div className="space-y-1">
-          {result.steps.map((s, i) => <StepCard key={i} step={{ ...s, type: i === 0 ? 'request' : i === 1 ? 'request' : 'response' }} isLast={i === result.steps.length - 1} />)}
+          {steps.map((s, i) => <StepCard key={i} step={{ ...s, type: 'request' }} isLast={!streamContent && !loading && i === steps.length - 1} />)}
         </div>
       )}
+      <AnswerCard content={streamContent} loading={loading && steps.length > 0} />
     </div>
   )
 }
@@ -127,22 +157,35 @@ function Stage1() {
 function Stage2() {
   const [input, setInput] = useState('什么是机器学习？')
   const [preset, setPreset] = useState('teacher')
-  const [results, setResults] = useState({})
+  const [results, setResults] = useState({})    // { [preset]: { steps, content } }
   const [loading, setLoading] = useState(null)
   const presetMeta = { default: '默认', coder: '程序员', teacher: '老师', creative: '创意' }
   const presetColors = { default: '#6b7280', coder: '#3b82f6', teacher: '#f59e0b', creative: '#ec4899' }
 
-  const run = async (p) => {
+  const run = (p) => {
     setPreset(p); setLoading(p)
-    try {
-      const r = await api.stage2Chat(input, p)
-      setResults(prev => ({ ...prev, [p]: r }))
-    } catch (e) { setResults(prev => ({ ...prev, [p]: { error: e.message } })) }
-    setLoading(null)
+    setResults(prev => ({ ...prev, [p]: { steps: [], content: '' } }))
+    api.stage2Chat(input, p, null, {
+      onStep: (step) => setResults(prev => ({ ...prev, [p]: { ...prev[p], steps: [...(prev[p]?.steps || []), step] } })),
+      onToken: (t) => setResults(prev => ({ ...prev, [p]: { ...prev[p], content: (prev[p]?.content || '') + t } })),
+      onDone: () => setLoading(null),
+      onError: (e) => { setResults(prev => ({ ...prev, [p]: { ...prev[p], error: e.message } })); setLoading(null) },
+    })
   }
 
   const runAll = async () => {
-    for (const p of Object.keys(presetMeta)) { await run(p) }
+    for (const p of Object.keys(presetMeta)) {
+      await new Promise(resolve => {
+        setPreset(p); setLoading(p)
+        setResults(prev => ({ ...prev, [p]: { steps: [], content: '' } }))
+        api.stage2Chat(input, p, null, {
+          onStep: (step) => setResults(prev => ({ ...prev, [p]: { ...prev[p], steps: [...(prev[p]?.steps || []), step] } })),
+          onToken: (t) => setResults(prev => ({ ...prev, [p]: { ...prev[p], content: (prev[p]?.content || '') + t } })),
+          onDone: () => { setLoading(null); resolve() },
+          onError: (e) => { setResults(prev => ({ ...prev, [p]: { ...prev[p], error: e.message } })); setLoading(null); resolve() },
+        })
+      })
+    }
   }
 
   const cur = results[preset]
@@ -163,11 +206,12 @@ function Stage2() {
           </button>
         ))}
       </div>
-      {cur?.steps && (
+      {cur?.steps?.length > 0 && (
         <div className="space-y-1">
-          {cur.steps.map((s, i) => <StepCard key={i} step={{ ...s, type: i < 3 ? 'request' : 'response' }} isLast={i === cur.steps.length - 1} />)}
+          {cur.steps.map((s, i) => <StepCard key={i} step={{ ...s, type: 'request' }} isLast={!cur.content && i === cur.steps.length - 1} />)}
         </div>
       )}
+      <AnswerCard content={cur?.content} loading={loading === preset && cur?.steps?.length > 0} />
       {cur?.error && <div className="text-xs text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-900/50">{cur.error}</div>}
     </div>
   )
@@ -184,22 +228,29 @@ function Stage3() {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(false)
   const [usage, setUsage] = useState(null)
+  const [streamContent, setStreamContent] = useState('')
   const roleColors = { system: '#8b5cf6', user: '#f59e0b', assistant: '#10b981' }
 
-  const send = async () => {
+  const send = () => {
     if (!input.trim()) return
-    setLoading(true)
-    try {
-      const r = await api.stage3Chat(input, history, sp)
-      setHistory(prev => [...prev, { role: 'user', content: input }, { role: 'assistant', content: r.response }])
-      setUsage(r.usage)
-      setInput('')
-    } catch (e) { alert(e.message) }
-    setLoading(false)
+    setLoading(true); setStreamContent('')
+    const currentInput = input
+    setInput('')
+    api.stage3Chat(currentInput, history, sp, null, {
+      onToken: (t) => setStreamContent(prev => prev + t),
+      onUsage: (u) => setUsage(u),
+      onDone: () => {
+        setStreamContent(prev => {
+          setHistory(h => [...h, { role: 'user', content: currentInput }, { role: 'assistant', content: prev }])
+          return ''
+        })
+        setLoading(false)
+      },
+      onError: (e) => { alert(e.message); setLoading(false) },
+    })
   }
 
   const allMsgs = sp ? [{ role: 'system', content: sp }, ...history] : history
-  const totalTokens = usage?.total_tokens || allMsgs.reduce((a, m) => a + m.content.length / 2, 0)
 
   return (
     <div className="space-y-5">
@@ -220,6 +271,16 @@ function Stage3() {
             <span className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{m.content}</span>
           </div>
         ))}
+        {/* 流式回复中 */}
+        {streamContent && (
+          <div className="flex gap-2 p-2.5 rounded-lg border" style={{ borderColor: roleColors.assistant + '33', backgroundColor: roleColors.assistant + '08' }}>
+            <span className="text-[10px] font-mono font-bold shrink-0 mt-0.5 w-16 text-right" style={{ color: roleColors.assistant }}>assistant</span>
+            <div className="text-xs text-gray-300 leading-relaxed">
+              <Markdown>{streamContent}</Markdown>
+              <span className="inline-block w-1.5 h-3 ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-middle" />
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex gap-2">
         <Input value={input} onChange={setInput} placeholder="继续对话..." onKeyDown={e => e.key === 'Enter' && send()} />
@@ -241,15 +302,18 @@ function Stage3() {
 function Stage4() {
   const [input, setInput] = useState('帮我搜索一下最新的 AI Agent 发展趋势')
   const [steps, setSteps] = useState([])
+  const [streamContent, setStreamContent] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  const run = async () => {
-    setLoading(true); setSteps([])
-    try {
-      const r = await api.stage4Chat(input)
-      setSteps(r.steps)
-    } catch (e) { setSteps([{ type: 'response', label: '错误', data: { error: e.message } }]) }
-    setLoading(false)
+  const run = () => {
+    setLoading(true); setSteps([]); setStreamContent(''); setError(null)
+    api.stage4Chat(input, null, {
+      onStep: (step) => setSteps(prev => [...prev, step]),
+      onToken: (t) => setStreamContent(prev => prev + t),
+      onDone: () => setLoading(false),
+      onError: (e) => { setError(e.message); setLoading(false) },
+    })
   }
 
   return (
@@ -258,15 +322,17 @@ function Stage4() {
         模型<b className="text-purple-400">不会自己执行</b>任何工具——它只输出"要调用什么、传什么参数"。工具执行由我们的代码完成（这里是博查搜索 API），结果再喂回模型。至少<b className="text-purple-400">两次 API 调用</b>。
       </Insight>
       <div className="flex gap-2">
-        <Input value={input} onChange={setInput} placeholder="问一个需要搜索/查天气的问题..." onKeyDown={e => e.key === 'Enter' && run()} />
+        <Input value={input} onChange={setInput} placeholder="问一个需要搜索的问题..." onKeyDown={e => e.key === 'Enter' && run()} />
         <Btn onClick={run} loading={loading}>发送</Btn>
       </div>
+      {error && <div className="text-xs text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-900/50">{error}</div>}
       {steps.length > 0 && (
         <div className="border border-gray-800 rounded-xl p-4 bg-[#0d1117]">
           <p className="text-xs text-gray-500 mb-3 font-medium">🔄 执行轨迹 ({steps.length} 步)</p>
-          {steps.map((s, i) => <StepCard key={i} step={s} isLast={i === steps.length - 1} />)}
+          {steps.map((s, i) => <StepCard key={i} step={s} isLast={!streamContent && !loading && i === steps.length - 1} />)}
         </div>
       )}
+      <AnswerCard content={streamContent} loading={loading && steps.length > 0} />
     </div>
   )
 }
@@ -285,7 +351,7 @@ function Stage5() {
   const [indexed, setIndexed] = useState(false)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
-  const [answer, setAnswer] = useState(null)
+  const [answer, setAnswer] = useState('')
   const [assembledPrompt, setAssembledPrompt] = useState('')
   const [loading, setLoading] = useState(false)
   const [chunkSize, setChunkSize] = useState(300)
@@ -351,18 +417,20 @@ function Stage5() {
     setLoading(false)
   }
 
-  // 生成
-  const doGenerate = async () => {
-    setLoading(true)
-    try {
-      const items = searchResults.results.map(r => ({ text: r.text, score: r.score }))
-      const r = await api.stage5Generate(query, items)
-      setAnswer(r.answer); setAssembledPrompt(r.assembled_prompt); setPhase('generate')
-    } catch (e) { alert(e.message) }
-    setLoading(false)
+  // 生成（流式）
+  const doGenerate = () => {
+    setLoading(true); setAnswer(''); setAssembledPrompt('')
+    const items = searchResults.results.map(r => ({ text: r.text, score: r.score }))
+    api.stage5Generate(query, items, null, {
+      onStep: (step) => { if (step.id === 'prompt') setAssembledPrompt(step.data) },
+      onToken: (t) => setAnswer(prev => prev + t),
+      onDone: () => { setLoading(false); setPhase('generate') },
+      onError: (e) => { alert(e.message); setLoading(false) },
+    })
+    setPhase('generate')
   }
 
-  const [urlInput, setUrlInput] = useState('https://lilianweng.github.io/posts/2023-06-23-agent/')
+  const [urlInput, setUrlInput] = useState('https://www.anthropic.com/constitution')
 
   return (
     <div className="space-y-5">
@@ -508,14 +576,19 @@ function Stage5() {
       )}
 
       {/* Phase: Generate */}
-      {phase === 'generate' && answer && (
+      {phase === 'generate' && (assembledPrompt || answer) && (
         <div className="space-y-4">
-          <Card title="组装后的 Prompt" badge="发给模型的完整输入" color="#f59e0b">
-            <Code maxH="max-h-48">{assembledPrompt}</Code>
-            <p className="mt-2 text-[10px] text-gray-600">☝️ 检索到的文档块被插入 Prompt，模型基于这些"参考资料"生成回答</p>
-          </Card>
+          {assembledPrompt && (
+            <Card title="组装后的 Prompt" badge="发给模型的完整输入" color="#f59e0b">
+              <Code maxH="max-h-48">{assembledPrompt}</Code>
+              <p className="mt-2 text-[10px] text-gray-600">☝️ 检索到的文档块被插入 Prompt，模型基于这些"参考资料"生成回答</p>
+            </Card>
+          )}
           <Card title="模型回答" color="#10b981">
-            <div className="p-3 rounded-lg bg-gray-950 border border-emerald-900/30 text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{answer}</div>
+            <div className="p-3 rounded-lg bg-gray-950 border border-emerald-900/30 text-sm text-gray-300 leading-relaxed">
+              {answer ? <Markdown>{answer}</Markdown> : null}
+              {loading && <span className="inline-block w-1.5 h-4 ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-middle" />}
+            </div>
           </Card>
           <div className="flex gap-2">
             <Input value={query} onChange={setQuery} placeholder="换一个问题试试..." onKeyDown={e => e.key === 'Enter' && doSearch()} className="flex-1" />
@@ -533,20 +606,18 @@ function Stage5() {
 // =====================================================
 
 function Stage6() {
-  const [query, setQuery] = useState('OpenAI 最新发布了什么模型？和之前的模型相比有什么改进？')
+  const [query, setQuery] = useState('帮我调研一下北京的房价，然后再调研一下东京的房价，最后给出你的投资建议')
   const [steps, setSteps] = useState([])
   const [running, setRunning] = useState(false)
-
   const [error, setError] = useState(null)
 
   const run = () => {
     setSteps([]); setRunning(true); setError(null)
-    api.stage6Run(
-      query, 'demo', true, null,
-      (step) => setSteps(prev => [...prev, step]),
-      () => setRunning(false),
-      (err) => { setError(err.message); setRunning(false) },
-    )
+    api.stage6Run(query, 'demo', true, null, {
+      onStep: (step) => setSteps(prev => [...prev, step]),
+      onDone: () => setRunning(false),
+      onError: (err) => { setError(err.message); setRunning(false) },
+    })
   }
 
   const typeColors = { system: '#6b7280', think: '#3b82f6', tool: '#f59e0b', observe: '#8b5cf6', result: '#10b981' }
@@ -602,7 +673,13 @@ function Stage6() {
                   <span className="text-sm">{typeIcons[s.type] || '📋'}</span>
                   <span className="text-[11px] font-medium" style={{ color: typeColors[s.type] || '#aaa' }}>{s.label}</span>
                 </div>
-                <pre className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">{s.content}</pre>
+                {s.type === 'result' ? (
+                  <div className="text-sm text-gray-300 leading-relaxed max-h-48 overflow-y-auto">
+                    <Markdown>{s.content}</Markdown>
+                  </div>
+                ) : (
+                  <pre className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">{s.content}</pre>
+                )}
               </div>
             ))}
           </div>

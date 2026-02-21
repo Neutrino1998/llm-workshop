@@ -21,24 +21,89 @@ async function get(path) {
   return r.json()
 }
 
-// Stage 1
-export const stage1Chat = (user_input, model) =>
-  post('/api/stage1/chat', { user_input, model })
+// ============================================================
+// SSE stream helper - 通用 SSE 处理
+// ============================================================
 
+function streamPost(path, body, { onStep, onToken, onUsage, onDone, onError }) {
+  fetch(BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async (resp) => {
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      throw new Error(`API ${resp.status}: ${text}`)
+    }
+    if (!resp.body) throw new Error('响应体为空')
+    const reader = resp.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop()
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const d = line.slice(6)
+          if (d === '[DONE]') { onDone?.(); return }
+          try {
+            const parsed = JSON.parse(d)
+            if (parsed.type === 'step') onStep?.(parsed.step)
+            else if (parsed.type === 'token') onToken?.(parsed.content)
+            else if (parsed.type === 'usage') onUsage?.(parsed.usage)
+            // Stage 6 legacy events
+            else onStep?.(parsed)
+          } catch {}
+        }
+      }
+    }
+    onDone?.()
+  }).catch((err) => {
+    onError?.(err) || onDone?.()
+  })
+}
+
+// ============================================================
+// Stage 1 (SSE)
+// ============================================================
+
+export function stage1Chat(input, model, callbacks) {
+  streamPost('/api/stage1/chat', { user_input: input, model }, callbacks)
+}
+
+// ============================================================
 // Stage 2
+// ============================================================
+
 export const stage2Presets = () => get('/api/stage2/presets')
-export const stage2Chat = (user_input, preset, model) =>
-  post('/api/stage2/chat', { user_input, preset, model })
 
-// Stage 3
-export const stage3Chat = (user_input, history, system_prompt, model) =>
-  post('/api/stage3/chat', { user_input, history, system_prompt, model })
+export function stage2Chat(input, preset, model, callbacks) {
+  streamPost('/api/stage2/chat', { user_input: input, preset, model }, callbacks)
+}
 
-// Stage 4
-export const stage4Chat = (user_input, model) =>
-  post('/api/stage4/chat', { user_input, model })
+// ============================================================
+// Stage 3 (SSE)
+// ============================================================
 
+export function stage3Chat(input, history, system_prompt, model, callbacks) {
+  streamPost('/api/stage3/chat', { user_input: input, history, system_prompt, model }, callbacks)
+}
+
+// ============================================================
+// Stage 4 (SSE)
+// ============================================================
+
+export function stage4Chat(input, model, callbacks) {
+  streamPost('/api/stage4/chat', { user_input: input, model }, callbacks)
+}
+
+// ============================================================
 // Stage 5
+// ============================================================
+
 export const stage5FetchURL = (url, max_length) =>
   post('/api/stage5/fetch_url', { url, max_length })
 
@@ -54,8 +119,9 @@ export const stage5Index = (content, chunk_size, chunk_overlap, doc_id) =>
 export const stage5Search = (query, top_k, doc_id) =>
   post('/api/stage5/search', { query, top_k, doc_id })
 
-export const stage5Generate = (query, search_results, model) =>
-  post('/api/stage5/generate', { query, search_results, model })
+export function stage5Generate(query, search_results, model, callbacks) {
+  streamPost('/api/stage5/generate', { query, search_results, model }, callbacks)
+}
 
 export async function stage5Upload(file) {
   const fd = new FormData()
@@ -65,44 +131,16 @@ export async function stage5Upload(file) {
   return r.json()
 }
 
+// ============================================================
 // Stage 6 (SSE) - ReAct Agent
-export function stage6Run(query, doc_id, enable_search, model, onStep, onDone, onError) {
-  // enable_search 参数保留兼容性但不再使用，Agent 自主决策
-  const body = JSON.stringify({ query, doc_id, model })
-  fetch(BASE + '/api/stage6/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-  }).then(async (resp) => {
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`API ${resp.status}: ${text}`)
-    }
-    if (!resp.body) {
-      throw new Error('响应体为空')
-    }
-    const reader = resp.body.getReader()
-    const dec = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop()
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const d = line.slice(6)
-          if (d === '[DONE]') { onDone?.(); return }
-          try { onStep(JSON.parse(d)) } catch {}
-        }
-      }
-    }
-    onDone?.()
-  }).catch((err) => {
-    onError?.(err) || onDone?.()
-  })
+// ============================================================
+
+export function stage6Run(query, doc_id, enable_search, model, callbacks) {
+  streamPost('/api/stage6/run', { query, doc_id, model }, callbacks)
 }
 
+// ============================================================
 // Utility
+// ============================================================
+
 export const getModels = () => get('/api/models')
