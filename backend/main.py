@@ -257,16 +257,27 @@ async def stage4_chat(req: ChatRequest):
                 },
             }})
 
-            # Step 4: 二次调用（流式）
+            # Step 4: 二次调用（流式）— 展示拼装后的完整 messages
             messages_r2 = messages + [
                 {"role": "assistant", "content": None, "tool_calls": result["tool_calls"]},
                 {"role": "tool", "tool_call_id": tc["id"], "content": tool_result[:2000]},
             ]
+            # 构造可读的 messages 预览（tool_calls 只保留函数名和参数）
+            messages_preview = []
+            for m in messages_r2:
+                preview = {"role": m["role"]}
+                if m.get("content"):
+                    preview["content"] = m["content"][:500] + ("..." if len(m.get("content", "")) > 500 else "")
+                if m.get("tool_calls"):
+                    preview["tool_calls"] = [{"function": t["function"]["name"], "arguments": t["function"]["arguments"]} for t in m["tool_calls"]]
+                if m.get("tool_call_id"):
+                    preview["tool_call_id"] = m["tool_call_id"]
+                messages_preview.append(preview)
             yield _sse({"type": "step", "step": {
                 "id": "final_call",
                 "type": "response",
-                "label": "④ 基于工具结果生成最终回答",
-                "data": {"messages_count": len(messages_r2)},
+                "label": "④ 拼装完整 Prompt 并生成最终回答",
+                "data": {"messages": messages_preview},
             }})
             async for content, usage in llm.chat_stream(messages_r2, model=req.model):
                 if content:
@@ -329,16 +340,29 @@ async def stage5_chunk(req: ChunkRequest):
 
 @app.post("/api/stage5/embed", tags=["Stage 5"])
 async def stage5_embed(req: EmbedRequest):
-    """Step 2: 对 chunks 进行向量化，返回向量预览"""
-    vectors = await emb.embed_batch(req.texts)
-    return {
-        "count": len(vectors),
-        "dimensions": len(vectors[0]) if vectors else 0,
-        "embeddings": [
-            {"id": i, "preview": v[:16], "norm": round(sum(x * x for x in v) ** 0.5, 4)}
-            for i, v in enumerate(vectors)
-        ],
-    }
+    """Step 2: 对 chunks 进行向量化，SSE 流式返回批次进度"""
+    async def stream():
+        all_vectors = []
+        async for batch_idx, total_batches, batch_vecs in emb.embed_batch_iter(req.texts):
+            all_vectors.extend(batch_vecs)
+            yield _sse({
+                "type": "progress",
+                "batch": batch_idx + 1,
+                "total_batches": total_batches,
+                "processed": len(all_vectors),
+                "total": len(req.texts),
+            })
+        yield _sse({
+            "type": "result",
+            "count": len(all_vectors),
+            "dimensions": len(all_vectors[0]) if all_vectors else 0,
+            "embeddings": [
+                {"id": i, "preview": v[:16], "norm": round(sum(x * x for x in v) ** 0.5, 4)}
+                for i, v in enumerate(all_vectors)
+            ],
+        })
+        yield "data: [DONE]\n\n"
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 @app.post("/api/stage5/index", tags=["Stage 5"])

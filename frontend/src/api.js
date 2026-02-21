@@ -110,8 +110,42 @@ export const stage5FetchURL = (url) =>
 export const stage5Chunk = (content, chunk_size, chunk_overlap) =>
   post('/api/stage5/chunk', { content, chunk_size, chunk_overlap })
 
-export const stage5Embed = (texts) =>
-  post('/api/stage5/embed', { texts })
+export function stage5Embed(texts, { onProgress, onResult, onError } = {}) {
+  return new Promise((resolve, reject) => {
+    fetch(BASE + '/api/stage5/embed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts }),
+    }).then(async (resp) => {
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '')
+        const err = new Error(`API ${resp.status}: ${text}`)
+        onError?.(err); reject(err); return
+      }
+      const reader = resp.body.getReader()
+      const dec = new TextDecoder()
+      let buf = '', result = null
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const d = line.slice(6)
+          if (d === '[DONE]') { resolve(result); return }
+          try {
+            const parsed = JSON.parse(d)
+            if (parsed.type === 'progress') onProgress?.(parsed)
+            else if (parsed.type === 'result') { result = parsed; onResult?.(parsed) }
+          } catch {}
+        }
+      }
+      resolve(result)
+    }).catch((err) => { onError?.(err); reject(err) })
+  })
+}
 
 export const stage5Index = (content, chunk_size, chunk_overlap, doc_id) =>
   post('/api/stage5/index', { content, chunk_size, chunk_overlap, doc_id })

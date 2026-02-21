@@ -354,6 +354,7 @@ function Stage5() {
   const [answer, setAnswer] = useState('')
   const [assembledPrompt, setAssembledPrompt] = useState('')
   const [loading, setLoading] = useState(false)
+  const [embedProgress, setEmbedProgress] = useState(null)
   const [chunkSize, setChunkSize] = useState(1000)
   const [chunkOverlap, setChunkOverlap] = useState(200)
 
@@ -395,11 +396,13 @@ function Stage5() {
 
   // 向量化 + 索引
   const doEmbed = async () => {
-    setLoading(true)
+    setLoading(true); setEmbedProgress(null)
     try {
       const texts = chunks.chunks.map(c => c.text)
-      const embRes = await api.stage5Embed(texts)
-      setEmbedResult(embRes)
+      const embRes = await api.stage5Embed(texts, {
+        onProgress: (p) => setEmbedProgress(p),
+      })
+      setEmbedResult(embRes); setEmbedProgress(null)
       await api.stage5Index(docContent, chunkSize, chunkOverlap, 'demo')
       setIndexed(true); setPhase('embed')
     } catch (e) { alert(e.message) }
@@ -532,6 +535,18 @@ function Stage5() {
             ))}
           </div>
           <Btn onClick={doEmbed} loading={loading} className="mt-3">下一步: 向量化 →</Btn>
+          {embedProgress && (
+            <div className="mt-2">
+              <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                <span>向量化进度: 批次 {embedProgress.batch}/{embedProgress.total_batches}</span>
+                <span>{embedProgress.processed}/{embedProgress.total} chunks</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${(embedProgress.batch / embedProgress.total_batches) * 100}%` }} />
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
