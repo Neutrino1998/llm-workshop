@@ -418,7 +418,7 @@ async def stage5_generate(req: RAGGenerateRequest):
 
 AGENT_TOOLS = [
     {"name": "web_search", "description": "搜索互联网获取实时信息，适合查询新闻、最新动态、公开知识"},
-    {"name": "knowledge_base", "description": "检索本地知识库（需先在 Stage 5 索引文档），适合查询已上传的私有文档"},
+    {"name": "fetch_url", "description": "抓取指定网页的内容，返回 Markdown 格式的正文文本"},
 ]
 
 
@@ -435,16 +435,10 @@ async def stage6_agent_run(req: AgentRequest):
         used_queries = set()  # 已使用的搜索词，避免重复
         iteration = 0
 
-        # 检查知识库是否有内容
-        has_knowledge_base = req.doc_id in rag.store and len(rag.store[req.doc_id]) > 0
-        available_tools = "web_search（网络搜索）"
-        if has_knowledge_base:
-            available_tools += "、knowledge_base（知识库检索）"
-
         yield _sse({
             "type": "system",
             "label": "Agent 初始化",
-            "content": f"可用工具: {available_tools}\n最大推理轮次: {max_iterations}"
+            "content": f"可用工具: web_search（网络搜索）、fetch_url（网页抓取）\n最大推理轮次: {max_iterations}"
         })
 
         while iteration < max_iterations:
@@ -463,7 +457,7 @@ async def stage6_agent_run(req: AgentRequest):
 
 【可用工具】
 1. web_search: 搜索互联网，参数 query（搜索关键词）
-2. knowledge_base: 检索知识库，参数 query（检索关键词）{"（当前知识库为空，不建议使用）" if not has_knowledge_base else ""}
+2. fetch_url: 抓取网页内容，参数 url（网页 URL）
 
 【已使用的搜索词】
 {list(used_queries) if used_queries else "无"}
@@ -516,17 +510,17 @@ async def stage6_agent_run(req: AgentRequest):
                     "content": search_result[:2000] + ("..." if len(search_result) > 2000 else "")
                 })
 
-            elif decision["action"] == "knowledge_base":
-                query = decision["action_input"]
-                yield _sse({"type": "tool", "label": f"调用 knowledge_base", "content": f"检索关键词: {query}"})
+            elif decision["action"] == "fetch_url":
+                url = decision["action_input"]
+                yield _sse({"type": "tool", "label": "调用 fetch_url", "content": f"抓取网页: {url}"})
 
-                rag_results = await rag.search(query, top_k=3, doc_id=req.doc_id)
-                if rag_results:
-                    rag_text = "\n\n".join([f"[相似度 {r['score']:.2f}] {r['text']}" for r in rag_results])
-                    collected_info.append(f"[knowledge_base: {query}]\n{rag_text[:1500]}")
-                    yield _sse({"type": "observe", "label": "观察知识库结果", "content": rag_text})
-                else:
-                    yield _sse({"type": "observe", "label": "观察知识库结果", "content": "未找到相关内容"})
+                fetch_result = await web.fetch(url)
+                collected_info.append(f"[fetch_url: {url}]\n{fetch_result[:1500]}")
+                yield _sse({
+                    "type": "observe",
+                    "label": "观察网页内容",
+                    "content": fetch_result[:2000] + ("..." if len(fetch_result) > 2000 else "")
+                })
 
             else:
                 yield _sse({"type": "think", "label": "未知动作", "content": f"Agent 返回了未知动作: {decision['action']}，尝试继续..."})
@@ -574,9 +568,9 @@ def _parse_agent_decision(text: str) -> dict:
     if "web_search" in text.lower():
         query_match = re.search(r'["\']([^"\']+)["\']', text)
         return {"thought": text[:200], "action": "web_search", "action_input": query_match.group(1) if query_match else ""}
-    if "knowledge_base" in text.lower():
-        query_match = re.search(r'["\']([^"\']+)["\']', text)
-        return {"thought": text[:200], "action": "knowledge_base", "action_input": query_match.group(1) if query_match else ""}
+    if "fetch_url" in text.lower():
+        url_match = re.search(r'https?://[^\s"\'<>]+', text)
+        return {"thought": text[:200], "action": "fetch_url", "action_input": url_match.group(0) if url_match else ""}
 
     return default
 
