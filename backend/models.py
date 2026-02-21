@@ -32,8 +32,8 @@ class FetchURLRequest(BaseModel):
 
 class ChunkRequest(BaseModel):
     content: str
-    chunk_size: int = 300
-    chunk_overlap: int = 50
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
 
 
 class EmbedRequest(BaseModel):
@@ -42,8 +42,8 @@ class EmbedRequest(BaseModel):
 
 class IndexRequest(BaseModel):
     content: str
-    chunk_size: int = 300
-    chunk_overlap: int = 50
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
     doc_id: str = "default"
 
 

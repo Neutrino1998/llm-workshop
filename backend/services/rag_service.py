@@ -14,12 +14,12 @@ class RAGService:
 
     # ---- Chunking ----
 
-    def chunk_text(self, text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]:
-        """递归字符切分，优先按段落/句子边界"""
+    def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:
+        """递归字符切分，优先按段落/句子边界，再按标点切分"""
         chunk_size = max(chunk_size, 50)
         overlap = min(overlap, chunk_size - 1)
         overlap = max(overlap, 0)
-        seps = ["\n\n", "\n", "。", "；", ". ", "; ", " ", ""]
+        seps = ["\n\n", "\n", "。", "！", "？", "；", ". ", "! ", "? ", "; ", "，", ", ", " "]
         result = []
         self._split(text, chunk_size, overlap, seps, result)
         return result
@@ -29,33 +29,49 @@ class RAGService:
             if text.strip():
                 out.append(text.strip())
             return
-        sep = ""
-        for s in seps:
+
+        # Find first separator present in text
+        sep_idx = -1
+        for i, s in enumerate(seps):
             if s in text:
-                sep = s
+                sep_idx = i
                 break
-        if not sep:
-            out.append(text[:sz].strip())
-            rem = text[sz - overlap:]
-            if rem.strip():
-                self._split(rem, sz, overlap, seps, out)
+
+        # No separator found — hard cut with overlap
+        if sep_idx == -1:
+            step = max(sz - overlap, 1)
+            i = 0
+            while i < len(text):
+                chunk = text[i:i + sz]
+                if chunk.strip():
+                    out.append(chunk.strip())
+                i += step
             return
+
+        sep = seps[sep_idx]
+        remaining_seps = seps[sep_idx + 1:]
         parts = text.split(sep)
+
+        # Merge small parts, recurse oversized ones
         cur = ""
         for p in parts:
             cand = cur + (sep if cur else "") + p
-            if len(cand) > sz and cur:
-                out.append(cur.strip())
-                tail = cur[-(overlap):] if len(cur) > overlap else cur
-                cur = tail + sep + p
-            else:
+            if len(cand) <= sz:
                 cur = cand
+            else:
+                if cur.strip():
+                    out.append(cur.strip())
+                if len(p) <= sz:
+                    cur = p
+                else:
+                    self._split(p, sz, overlap, remaining_seps, out)
+                    cur = ""
         if cur.strip():
             out.append(cur.strip())
 
     # ---- Indexing ----
 
-    async def index_document(self, content: str, chunk_size=300, overlap=50, doc_id="default") -> dict:
+    async def index_document(self, content: str, chunk_size=1000, overlap=200, doc_id="default") -> dict:
         chunks = self.chunk_text(content, chunk_size, overlap)
         vectors = await self.emb.embed_batch(chunks)
         entries = []

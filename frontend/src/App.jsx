@@ -354,8 +354,8 @@ function Stage5() {
   const [answer, setAnswer] = useState('')
   const [assembledPrompt, setAssembledPrompt] = useState('')
   const [loading, setLoading] = useState(false)
-  const [chunkSize, setChunkSize] = useState(300)
-  const [chunkOverlap, setChunkOverlap] = useState(50)
+  const [chunkSize, setChunkSize] = useState(1000)
+  const [chunkOverlap, setChunkOverlap] = useState(200)
 
   const phases = [
     { key: 'load', label: '① 加载文档', icon: '📄' },
@@ -431,6 +431,23 @@ function Stage5() {
   }
 
   const [urlInput, setUrlInput] = useState('https://www.anthropic.com/constitution')
+
+  const suggestedQueries = [
+    'Claude 的核心价值观优先级是什么？',
+    'Operator 和 User 的区别是什么？',
+    'Claude 在什么情况下可以拒绝指令？',
+  ]
+
+  const QuerySuggestions = () => (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      {suggestedQueries.map(q => (
+        <button key={q} onClick={() => setQuery(q)}
+          className="px-2 py-0.5 text-[10px] rounded-full border border-gray-800 text-gray-500 hover:border-emerald-700 hover:text-emerald-400 transition-colors">
+          {q}
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <div className="space-y-5">
@@ -548,6 +565,7 @@ function Stage5() {
             </div>
             <Btn onClick={doSearch} loading={loading}>检索 →</Btn>
           </div>
+          <QuerySuggestions />
         </Card>
       )}
 
@@ -590,9 +608,12 @@ function Stage5() {
               {loading && <span className="inline-block w-1.5 h-4 ml-0.5 bg-emerald-400 animate-pulse rounded-sm align-middle" />}
             </div>
           </Card>
-          <div className="flex gap-2">
-            <Input value={query} onChange={setQuery} placeholder="换一个问题试试..." onKeyDown={e => e.key === 'Enter' && doSearch()} className="flex-1" />
-            <Btn onClick={doSearch} loading={loading}>重新检索</Btn>
+          <div>
+            <div className="flex gap-2">
+              <Input value={query} onChange={setQuery} placeholder="换一个问题试试..." onKeyDown={e => e.key === 'Enter' && doSearch()} className="flex-1" />
+              <Btn onClick={doSearch} loading={loading}>重新检索</Btn>
+            </div>
+            <QuerySuggestions />
           </div>
         </div>
       )}

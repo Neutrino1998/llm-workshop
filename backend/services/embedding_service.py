@@ -24,17 +24,21 @@ class EmbeddingService:
                 raise Exception(f"Embedding API error ({r.status_code}): {r.text[:300]}")
             return r.json()["data"][0]["embedding"]
 
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+    async def embed_batch(self, texts: list[str], batch_size: int = 10) -> list[list[float]]:
         if not texts:
             return []
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        payload = {"model": self.model, "input": texts}
+        all_embeddings: list[list[float]] = []
         async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(f"{self.base_url}/embeddings", json=payload, headers=headers)
-            if r.status_code != 200:
-                raise Exception(f"Embedding API error ({r.status_code}): {r.text[:300]}")
-            data = sorted(r.json()["data"], key=lambda x: x["index"])
-            return [d["embedding"] for d in data]
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                payload = {"model": self.model, "input": batch}
+                r = await c.post(f"{self.base_url}/embeddings", json=payload, headers=headers)
+                if r.status_code != 200:
+                    raise Exception(f"Embedding API error ({r.status_code}): {r.text[:300]}")
+                data = sorted(r.json()["data"], key=lambda x: x["index"])
+                all_embeddings.extend(d["embedding"] for d in data)
+        return all_embeddings
 
     @staticmethod
     def cosine_similarity(a: list[float], b: list[float]) -> float:
