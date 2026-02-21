@@ -66,7 +66,7 @@ export async function stage5Upload(file) {
 }
 
 // Stage 6 (SSE) - ReAct Agent
-export function stage6Run(query, doc_id, enable_search, model, onStep, onDone) {
+export function stage6Run(query, doc_id, enable_search, model, onStep, onDone, onError) {
   // enable_search 参数保留兼容性但不再使用，Agent 自主决策
   const body = JSON.stringify({ query, doc_id, model })
   fetch(BASE + '/api/stage6/run', {
@@ -74,6 +74,13 @@ export function stage6Run(query, doc_id, enable_search, model, onStep, onDone) {
     headers: { 'Content-Type': 'application/json' },
     body,
   }).then(async (resp) => {
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      throw new Error(`API ${resp.status}: ${text}`)
+    }
+    if (!resp.body) {
+      throw new Error('响应体为空')
+    }
     const reader = resp.body.getReader()
     const dec = new TextDecoder()
     let buf = ''
@@ -92,6 +99,8 @@ export function stage6Run(query, doc_id, enable_search, model, onStep, onDone) {
       }
     }
     onDone?.()
+  }).catch((err) => {
+    onError?.(err) || onDone?.()
   })
 }
 

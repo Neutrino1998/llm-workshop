@@ -16,6 +16,9 @@ class RAGService:
 
     def chunk_text(self, text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]:
         """递归字符切分，优先按段落/句子边界"""
+        chunk_size = max(chunk_size, 50)
+        overlap = min(overlap, chunk_size - 1)
+        overlap = max(overlap, 0)
         seps = ["\n\n", "\n", "。", "；", ". ", "; ", " ", ""]
         result = []
         self._split(text, chunk_size, overlap, seps, result)

@@ -10,18 +10,18 @@ import time
 from typing import Optional
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from dotenv import load_dotenv
 
 from models import *
 from services.llm_service import LLMService
 from services.embedding_service import EmbeddingService
 from services.rag_service import RAGService
 from services.web_service import WebService
-
-load_dotenv()
 
 # ================================================================
 # App Lifecycle
@@ -220,7 +220,10 @@ async def stage4_chat(req: ChatRequest):
     if result.get("tool_calls"):
         tc = result["tool_calls"][0]
         func_name = tc["function"]["name"]
-        func_args = json.loads(tc["function"]["arguments"])
+        try:
+            func_args = json.loads(tc["function"]["arguments"])
+        except (json.JSONDecodeError, TypeError):
+            func_args = {"query": tc["function"]["arguments"]}
 
         # Step 2: 模型决策
         steps.append({

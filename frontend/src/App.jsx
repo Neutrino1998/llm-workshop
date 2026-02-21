@@ -372,12 +372,19 @@ function Stage5() {
 
       {/* Phase tabs */}
       <div className="flex rounded-lg border border-gray-800 overflow-hidden">
-        {phases.map(p => (
-          <button key={p.key} onClick={() => setPhase(p.key)}
-            className={`flex-1 py-2 text-[11px] font-medium transition-all ${phase === p.key ? 'bg-emerald-900/20 text-emerald-400' : 'text-gray-600 hover:text-gray-400'}`}>
-            {p.icon} {p.label}
-          </button>
-        ))}
+        {phases.map(p => {
+          const unlocked = p.key === 'load'
+            || (p.key === 'chunk' && !!docContent)
+            || (p.key === 'embed' && !!chunks)
+            || (p.key === 'search' && !!embedResult && indexed)
+            || (p.key === 'generate' && !!searchResults)
+          return (
+            <button key={p.key} onClick={() => unlocked && setPhase(p.key)} disabled={!unlocked}
+              className={`flex-1 py-2 text-[11px] font-medium transition-all ${phase === p.key ? 'bg-emerald-900/20 text-emerald-400' : unlocked ? 'text-gray-600 hover:text-gray-400' : 'text-gray-800 cursor-not-allowed'}`}>
+              {p.icon} {p.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Phase: Load */}
@@ -530,12 +537,15 @@ function Stage6() {
   const [steps, setSteps] = useState([])
   const [running, setRunning] = useState(false)
 
+  const [error, setError] = useState(null)
+
   const run = () => {
-    setSteps([]); setRunning(true)
+    setSteps([]); setRunning(true); setError(null)
     api.stage6Run(
       query, 'demo', true, null,
       (step) => setSteps(prev => [...prev, step]),
       () => setRunning(false),
+      (err) => { setError(err.message); setRunning(false) },
     )
   }
 
@@ -577,6 +587,7 @@ function Stage6() {
         <Btn onClick={run} loading={running}>运行 Agent</Btn>
         <span className="text-[10px] text-gray-600">Agent 会自主决定使用什么工具、搜索几次</span>
       </div>
+      {error && <div className="text-xs text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-900/50">{error}</div>}
       {steps.length > 0 && (
         <div className="border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-4 py-2 bg-gray-900/50 border-b border-gray-800 flex items-center justify-between">
