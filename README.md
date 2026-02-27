@@ -164,4 +164,4 @@ llm-workshop/
 
 - RAG 使用内存存储，服务重启后索引数据丢失（培训演示场景可接受）
 - 网页抓取为简易实现，部分 JS 渲染页面可能抓取不完整
-- Stage 6 Agent 最多循环 3 轮，防止 token 消耗过大
+- Stage 6 Agent 最多循环 10 轮，防止 token 消耗过大
