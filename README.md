@@ -4,22 +4,55 @@
 
 6 个递进阶段，以 RAG 为核心 example，从最基础的 API 调用开始，逐步添加系统提示词、多轮对话、工具调用、RAG、Agentic RAG。**每一步都是真实的 API 调用，不是 mock 数据。**
 
+## 前置准备：获取 API Key
+
+启动项目前需要两个 API Key，都是免费注册即可获取：
+
+### 1. DASHSCOPE_API_KEY（阿里云百炼，用于调用大模型）
+
+1. 打开 [阿里云百炼控制台](https://bailian.console.aliyun.com/)
+2. 如果没有阿里云账号，点击右上角「注册」用手机号注册一个（支付宝扫码也行）
+3. 登录后，点击右上角头像 → 「API-KEY」→ 「创建 API Key」
+4. 复制生成的 `sk-xxxx` 格式的 Key
+
+> 新账号会赠送免费额度，培训演示足够用。
+
+### 2. BOCHA_API_KEY（博查搜索，用于 Stage 4/6 的联网搜索）
+
+1. 打开 [博查 AI 开放平台](https://open.bochaai.com/)
+2. 注册/登录账号
+3. 进入控制台，在「API Key 管理」页面创建一个 Key
+4. 复制生成的 Key
+
+> 注册后有免费调用额度。
+
+### 3. 配置到项目
+
+```bash
+cp .env.example .env
+```
+
+用任意编辑器打开 `.env` 文件，把上面拿到的两个 Key 填进去：
+
+```bash
+DASHSCOPE_API_KEY=sk-你复制的key
+BOCHA_API_KEY=你复制的key
+```
+
 ## 快速启动
 
 ### 方式一：本地开发（推荐调试）
 
-```bash
-# 1. 配置环境变量
-cp .env.example .env
-# 编辑 .env 填入 DASHSCOPE_API_KEY 和 BOCHA_API_KEY
+**环境要求：** Python 3.10+、Node.js 18+
 
-# 2. 启动后端
+```bash
+# 1. 启动后端
 cd backend
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 # API 文档: http://localhost:8000/docs
 
-# 3. 启动前端 (新终端)
+# 2. 启动前端 (新开一个终端窗口)
 cd frontend
 npm install
 npm run dev
@@ -28,10 +61,9 @@ npm run dev
 
 ### 方式二：Docker 一键部署
 
-```bash
-cp .env.example .env
-# 编辑 .env 填入 API Keys
+**环境要求：** Docker 和 Docker Compose
 
+```bash
 docker compose up -d
 # 打开: http://localhost:5173
 ```
@@ -116,15 +148,13 @@ llm-workshop/
 
 ## 环境变量
 
-```bash
-# 必填
-DASHSCOPE_API_KEY=sk-xxx    # 阿里云百炼 API Key
-BOCHA_API_KEY=xxx           # 博查 AI 搜索 API Key
-
-# 可选
-LLM_DEFAULT_MODEL=qwen-plus        # 默认 LLM 模型
-EMBEDDING_MODEL=text-embedding-v3  # 默认 Embedding 模型
-```
+| 变量 | 必填 | 说明 | 获取方式 |
+|------|------|------|---------|
+| `DASHSCOPE_API_KEY` | 是 | 阿里云百炼，调用 LLM 和 Embedding | [控制台](https://bailian.console.aliyun.com/) → 头像 → API-KEY |
+| `BOCHA_API_KEY` | 是 | 博查搜索，Stage 4/6 联网搜索 | [开放平台](https://open.bochaai.com/) → API Key 管理 |
+| `JINA_API_KEY` | 否 | Jina Reader，更好的网页抓取效果 | [jina.ai/reader](https://jina.ai/reader) |
+| `LLM_DEFAULT_MODEL` | 否 | 默认 `qwen-plus` | - |
+| `EMBEDDING_MODEL` | 否 | 默认 `text-embedding-v3` | - |
 
 ## 培训资料
 
