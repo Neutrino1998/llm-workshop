@@ -160,6 +160,8 @@ llm-workshop/
 
 `docs/training-script.md` 包含完整的培训讲稿（约 50 分钟），以 Context Engineering 为统一视角，配合每个 Stage 的演示操作。
 
+`docs/从0开始认识大语言模型.md` 包含大语言模型基础原理讲解，从深度学习基础到 Transformer 架构（Embedding、Attention、MLP、Residual Stream），适合零基础入门。
+
 ## 已知限制
 
 - RAG 使用内存存储，服务重启后索引数据丢失（培训演示场景可接受）
