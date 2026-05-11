@@ -96,6 +96,9 @@ export function stage3Chat(input, history, system_prompt, model, callbacks) {
 // Stage 4 (SSE)
 // ============================================================
 
+export const stage4WebSearch = (query) =>
+  post('/api/stage4/web_search', { query })
+
 export function stage4Chat(input, model, callbacks) {
   streamPost('/api/stage4/chat', { user_input: input, model }, callbacks)
 }

@@ -196,6 +196,16 @@ async def execute_tool(name: str, args: dict) -> str:
     return f"未知工具: {name}"
 
 
+@app.post("/api/stage4/web_search", tags=["Stage 4"])
+async def stage4_web_search(req: ToolTestRequest):
+    """
+    直接调用 web_search 工具，不经过 LLM。
+    用于演示"工具本身就是一个普通 API，独立可用"。
+    """
+    result = await web.search(req.query)
+    return {"query": req.query, "result": result}
+
+
 @app.post("/api/stage4/chat", tags=["Stage 4"])
 async def stage4_chat(req: ChatRequest):
     """

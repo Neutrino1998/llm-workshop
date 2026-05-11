@@ -30,6 +30,10 @@ class FetchURLRequest(BaseModel):
     url: str
 
 
+class ToolTestRequest(BaseModel):
+    query: str
+
+
 class ChunkRequest(BaseModel):
     content: str
     chunk_size: int = 1000

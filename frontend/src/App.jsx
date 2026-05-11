@@ -35,6 +35,58 @@ function Insight({ children, color = '#f59e0b' }) {
   )
 }
 
+/** 流程一图流：带颜色的 pill + 箭头，可单行或多行 */
+function Pill({ children, color = '#6b7280', dim = false }) {
+  return (
+    <span className="px-2 py-1 rounded text-[11px] font-mono whitespace-nowrap inline-flex items-center gap-1"
+      style={{
+        backgroundColor: color + (dim ? '12' : '22'),
+        color,
+        border: `1px solid ${color}${dim ? '33' : '55'}`,
+      }}>
+      {children}
+    </span>
+  )
+}
+
+function Arr({ label }) {
+  return (
+    <span className="text-gray-600 text-[11px] inline-flex flex-col items-center leading-none">
+      {label && <span className="text-[8px] text-gray-500 mb-0.5">{label}</span>}
+      <span>→</span>
+    </span>
+  )
+}
+
+function Plus() {
+  return <span className="text-gray-600 text-[11px] px-0.5">+</span>
+}
+
+function FlowDiagram({ title, color, sub, children, rows }) {
+  return (
+    <div className="rounded-xl border p-3.5 bg-[#0d1117]" style={{ borderColor: color + '55' }}>
+      {title && (
+        <p className="text-[10px] mb-2.5 font-medium tracking-wider uppercase" style={{ color }}>
+          🗺️ {title}
+        </p>
+      )}
+      {rows ? (
+        <div className="space-y-2.5">
+          {rows.map((row, i) => (
+            <div key={i}>
+              {row.label && <p className="text-[10px] text-gray-500 mb-1">{row.label}</p>}
+              <div className="flex items-center gap-1.5 flex-wrap">{row.children}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 flex-wrap">{children}</div>
+      )}
+      {sub && <p className="text-[10px] text-gray-500 mt-2.5 leading-relaxed border-t border-gray-900 pt-2">{sub}</p>}
+    </div>
+  )
+}
+
 function Card({ title, badge, color = '#374151', children }) {
   return (
     <div className="rounded-xl border p-4 bg-[#0d1117]" style={{ borderColor: color + '55' }}>
@@ -135,6 +187,16 @@ function Stage1() {
 
   return (
     <div className="space-y-5">
+      <FlowDiagram title="基础调用 · Context = 1 条 user 消息" color="#f59e0b"
+        sub="messages 数组只有 1 条；模型无状态——每次调用相互独立。">
+        <Pill color="#6b7280">💬 user: 问题</Pill>
+        <Arr />
+        <Pill color="#f59e0b">🤖 LLM</Pill>
+        <Arr />
+        <Pill color="#10b981">📝 content</Pill>
+        <Plus />
+        <Pill color="#10b981" dim>📊 usage</Pill>
+      </FlowDiagram>
       <Insight>大模型的本质：一个<b className="text-amber-400">"文本进，文本出"的 HTTP API</b>。没有记忆，没有状态，每次调用都是独立的。你发一个 JSON 请求，它返回一个 JSON 响应。</Insight>
       <div className="flex gap-2">
         <Input value={input} onChange={setInput} placeholder="输入你的问题..." onKeyDown={e => e.key === 'Enter' && run()} />
@@ -212,6 +274,16 @@ function Stage2() {
 
   return (
     <div className="space-y-5">
+      <FlowDiagram title="System Prompt · 在 Context 前面加'人设'" color="#f59e0b"
+        sub="同一问题 + 不同 system → 不同风格的输出；模型本身没变，变的只是开头那段文字。">
+        <Pill color="#ec4899">⚙️ system: 人设</Pill>
+        <Plus />
+        <Pill color="#6b7280">💬 user: 问题</Pill>
+        <Arr />
+        <Pill color="#f59e0b">🤖 LLM</Pill>
+        <Arr />
+        <Pill color="#10b981">📝 受人设影响的输出</Pill>
+      </FlowDiagram>
       <Insight>System Prompt 是发给模型的第一条"隐藏"消息。它定义了模型的<b className="text-amber-400">角色、语气和行为</b>。同一个问题，不同的 System Prompt 会得到截然不同的回答。</Insight>
       <div className="flex gap-2">
         <Input value={input} onChange={setInput} placeholder="输入问题..." className="flex-1" />
@@ -274,6 +346,24 @@ function Stage3() {
 
   return (
     <div className="space-y-5">
+      <FlowDiagram title="多轮对话 · 每轮把完整历史重传一次" color="#3b82f6"
+        sub="模型没有记忆——是我们每轮把全部历史塞回 Context；越聊 token 越多，成本越高。">
+        <Pill color="#ec4899">⚙️ system</Pill>
+        <Plus />
+        <Pill color="#6b7280">💬 Q₁</Pill>
+        <Pill color="#10b981" dim>🤖 A₁</Pill>
+        <Plus />
+        <Pill color="#6b7280">💬 Q₂</Pill>
+        <Pill color="#10b981" dim>🤖 A₂</Pill>
+        <Plus />
+        <span className="text-gray-600 text-[11px]">…</span>
+        <Plus />
+        <Pill color="#6b7280">💬 Qₙ</Pill>
+        <Arr />
+        <Pill color="#3b82f6">🤖 LLM</Pill>
+        <Arr />
+        <Pill color="#10b981">🤖 Aₙ</Pill>
+      </FlowDiagram>
       <Insight color="#3b82f6">
         大模型<b className="text-blue-400">没有记忆</b>！要实现多轮对话，必须把<b className="text-blue-400">完整的对话历史</b>作为 messages 数组传给模型。每多一轮，token 消耗就增长一截。
       </Insight>
@@ -326,6 +416,24 @@ function Stage4() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // 工具试用区：直接调用 web_search，无 LLM 参与
+  const [toolQuery, setToolQuery] = useState('上海今天天气怎么样？')
+  const [toolResult, setToolResult] = useState('')
+  const [toolLoading, setToolLoading] = useState(false)
+  const [toolError, setToolError] = useState(null)
+
+  const runTool = async () => {
+    if (!toolQuery.trim()) return
+    setToolLoading(true); setToolResult(''); setToolError(null)
+    try {
+      const r = await api.stage4WebSearch(toolQuery)
+      setToolResult(r.result)
+    } catch (e) {
+      setToolError(e.message)
+    }
+    setToolLoading(false)
+  }
+
   const run = () => {
     setLoading(true); setSteps([]); setStreamContent(''); setError(null)
     api.stage4Chat(input, null, {
@@ -338,9 +446,55 @@ function Stage4() {
 
   return (
     <div className="space-y-5">
+      <FlowDiagram title="工具调用 · 两次 LLM 调用，中间夹一次工具执行" color="#8b5cf6"
+        sub="模型只输出'调哪个工具、传什么参数'，真正执行靠我们的代码；至少 2 次 LLM 调用。">
+        <Pill color="#6b7280">💬 user</Pill>
+        <Plus />
+        <Pill color="#f59e0b">🔧 tools 定义</Pill>
+        <Arr />
+        <Pill color="#8b5cf6">🤖 LLM #1</Pill>
+        <Arr />
+        <Pill color="#8b5cf6" dim>📋 tool_calls</Pill>
+        <Arr label="我们的代码" />
+        <Pill color="#f59e0b" dim>⚙️ execute_tool()</Pill>
+        <Arr />
+        <Pill color="#f59e0b" dim>📊 tool_result</Pill>
+        <Arr label="塞回 messages" />
+        <Pill color="#8b5cf6">🤖 LLM #2</Pill>
+        <Arr />
+        <Pill color="#10b981">📝 最终回答</Pill>
+      </FlowDiagram>
       <Insight color="#8b5cf6">
         模型<b className="text-purple-400">不会自己执行</b>任何工具——它只输出"要调用什么、传什么参数"。工具执行由我们的代码完成（这里是博查搜索 API），结果再喂回模型。至少<b className="text-purple-400">两次 API 调用</b>。
       </Insight>
+
+      {/* ① 工具试用区：先单独调用一下工具本身，证明它就是个普通 API */}
+      <Card title="① 工具试用区 — 工具就是一个普通 API（无 LLM）" color="#f59e0b">
+        <div className="space-y-3">
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            下面这个调用直接打到后端的 <code className="text-amber-400 bg-amber-950/30 px-1 rounded">web_search()</code> 函数（博查搜索 API），<b className="text-gray-300">全程没有大模型参与</b>。这就是后面模型会"用"的工具——我们的系统已经把它准备好了。
+          </p>
+          <div className="flex gap-2">
+            <Input value={toolQuery} onChange={setToolQuery} placeholder="试试 上海今天天气怎么样？" onKeyDown={e => e.key === 'Enter' && runTool()} />
+            <Btn onClick={runTool} loading={toolLoading}>调用 web_search()</Btn>
+          </div>
+          {toolError && <div className="text-xs text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-900/50">{toolError}</div>}
+          {toolResult && (
+            <div>
+              <p className="text-[10px] text-gray-600 mb-1.5">返回结果（这段文字稍后会被塞回 messages 给模型作为参考）：</p>
+              <Code maxH="max-h-64">{toolResult}</Code>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* 分隔：进入"模型使用工具"演示 */}
+      <div className="flex items-center gap-3 pt-1">
+        <div className="h-px flex-1 bg-gray-800" />
+        <span className="text-[10px] text-gray-500">② 现在看模型怎么"用"这个工具</span>
+        <div className="h-px flex-1 bg-gray-800" />
+      </div>
+
       <div className="flex gap-2">
         <Input value={input} onChange={setInput} placeholder="问一个需要搜索的问题..." onKeyDown={e => e.key === 'Enter' && run()} />
         <Btn onClick={run} loading={loading}>发送</Btn>
@@ -474,6 +628,38 @@ function Stage5() {
 
   return (
     <div className="space-y-5">
+      <FlowDiagram title="RAG · 离线建索引 + 在线检索增强" color="#10b981"
+        sub="检索阶段全程无 LLM 参与，只是向量数学；只有最后一步生成才调一次 LLM。"
+        rows={[
+          {
+            label: '① 索引阶段（离线，文档变化时才做）',
+            children: <>
+              <Pill color="#6b7280">📄 文档</Pill>
+              <Arr />
+              <Pill color="#10b981" dim>✂️ 切分 chunks</Pill>
+              <Arr />
+              <Pill color="#10b981" dim>🔢 向量化</Pill>
+              <Arr />
+              <Pill color="#10b981">💾 向量库</Pill>
+            </>,
+          },
+          {
+            label: '② 查询阶段（每次问答）',
+            children: <>
+              <Pill color="#6b7280">❓ query</Pill>
+              <Arr />
+              <Pill color="#10b981" dim>🔢 向量化</Pill>
+              <Arr />
+              <Pill color="#10b981" dim>🔍 检索 Top-K</Pill>
+              <Arr />
+              <Pill color="#f59e0b">📦 拼装 Prompt</Pill>
+              <Arr />
+              <Pill color="#10b981">🤖 LLM</Pill>
+              <Arr />
+              <Pill color="#10b981">📝 答案</Pill>
+            </>,
+          },
+        ]} />
       <Insight color="#10b981">
         RAG = 检索增强生成。核心：不让模型凭空回答，而是先从你的文档中<b className="text-emerald-400">检索</b>相关内容，再让模型<b className="text-emerald-400">基于检索结果</b>回答。每一步的数据都可视化展示。
       </Insight>
@@ -681,34 +867,47 @@ function Stage6() {
 
   return (
     <div className="space-y-5">
+      <FlowDiagram title="Agentic RAG · 把'固定流水线'换成'自主循环'" color="#ef4444"
+        sub="普通 RAG：一次检索一次生成，路径固定。Agentic：Agent 每轮自主决定下一步往 Context 里加什么。"
+        rows={[
+          {
+            label: '普通 RAG（固定流水线，1 次 LLM 调用）',
+            children: <>
+              <Pill color="#6b7280">❓ query</Pill>
+              <Arr />
+              <Pill color="#10b981" dim>🔍 检索 Top-K</Pill>
+              <Arr />
+              <Pill color="#f59e0b" dim>📦 拼装</Pill>
+              <Arr />
+              <Pill color="#10b981">🤖 LLM</Pill>
+              <Arr />
+              <Pill color="#10b981">📝 答案</Pill>
+            </>,
+          },
+          {
+            label: 'Agentic RAG（ReAct 循环，N 次 LLM 调用）',
+            children: <>
+              <Pill color="#6b7280">❓ query</Pill>
+              <Arr />
+              <span className="px-2 py-1 rounded text-[11px] font-mono inline-flex items-center gap-1.5 border-2 border-dashed"
+                style={{ borderColor: '#ef444466', color: '#fca5a5', backgroundColor: '#ef444411' }}>
+                <Pill color="#3b82f6">🧠 思考</Pill>
+                <span className="text-gray-600">→</span>
+                <Pill color="#f59e0b">🔧 调工具</Pill>
+                <span className="text-gray-600">→</span>
+                <Pill color="#8b5cf6">👁️ 观察</Pill>
+                <span className="text-[10px] text-red-300 ml-1">↻ 循环 N 轮</span>
+              </span>
+              <Arr label="信息够了" />
+              <Pill color="#ef4444">🤖 总结生成</Pill>
+              <Arr />
+              <Pill color="#10b981">📝 答案</Pill>
+            </>,
+          },
+        ]} />
       <Insight color="#ef4444">
         <b className="text-red-400">普通 RAG</b> 是固定流水线。<b className="text-red-400">Agentic RAG</b> 是 <b className="text-amber-400">ReAct 循环</b>：Agent 思考(Reason) → 选择工具行动(Act) → 观察结果(Observe) → 判断是否足够 → 不够就继续循环。
       </Insight>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="p-3 rounded-lg border border-gray-800 bg-[#0d1117]">
-          <p className="text-[10px] text-gray-500 mb-1.5 font-medium">普通 RAG（固定流水线）</p>
-          <div className="flex items-center gap-1 text-[10px]">
-            {['问题', '检索', '生成'].map((s, i) => (
-              <span key={i} className="flex items-center gap-1">
-                {i > 0 && <span className="text-gray-700">→</span>}
-                <span className="px-1.5 py-0.5 rounded bg-emerald-900/30 text-emerald-400">{s}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="p-3 rounded-lg border border-red-900/40 bg-red-950/10">
-          <p className="text-[10px] text-red-400 mb-1.5 font-medium">Agentic RAG（ReAct 循环）</p>
-          <div className="flex items-center gap-1 text-[10px] flex-wrap gap-y-1">
-            <span className="px-1.5 py-0.5 rounded bg-blue-900/30 text-blue-400">思考</span>
-            <span className="text-gray-700">→</span>
-            <span className="px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400">行动</span>
-            <span className="text-gray-700">→</span>
-            <span className="px-1.5 py-0.5 rounded bg-purple-900/30 text-purple-400">观察</span>
-            <span className="text-gray-700">→</span>
-            <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">循环?</span>
-          </div>
-        </div>
-      </div>
       <TextArea value={query} onChange={setQuery} placeholder="输入需要 Agent 解答的问题..." rows={2} />
       <div className="flex items-center gap-3">
         <Btn onClick={run} loading={running}>运行 Agent</Btn>
